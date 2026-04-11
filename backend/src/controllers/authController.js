@@ -67,33 +67,41 @@ const register = async (req, res) => {
       position,
     });
 
-    // Уведомляем всех админов
+    // Уведомляем всех админов (безопасная версия)
     const admins = await User.findAll({
       where: { role: 'admin', isActive: true },
     });
 
     for (const admin of admins) {
-      await Notification.create({
-        userId: admin.id,
-        type: 'new_user_pending',
-        title: 'Новый пользователь ожидает одобрения',
-        message: `${name} (${email}) зарегистрировался и ожидает активации`,
-        link: '/team',
-        payload: { userId: user.id, userName: name, userEmail: email },
-      });
+      try {
+        await Notification.create({
+          userId: admin.id,
+          type: 'new_user_pending',
+          title: 'Новый пользователь ожидает одобрения',
+          message: `${name} (${email}) зарегистрировался и ожидает активации`,
+          link: '/team',
+          payload: { userId: user.id, userName: name, userEmail: email },
+        });
+      } catch (notifErr) {
+        console.error('Ошибка создания уведомления в БД:', notifErr.message);
+      }
 
-      // Уведомление в io если подключён
-      const io = req.app.get('io');
-      const connectedUsers = req.app.get('connectedUsers');
-      if (io && connectedUsers) {
-        const adminSocketId = connectedUsers.get(admin.id);
-        if (adminSocketId) {
-          io.to(adminSocketId).emit('notification', {
-            type: 'new_user_pending',
-            title: 'Новый пользователь ожидает одобрения',
-            message: `${name} (${email}) зарегистрировался`,
-          });
+      // WebSocket уведомление — только если всё инициализировано
+      try {
+        const io = req.app.get('io');
+        const connectedUsers = req.app.get('connectedUsers');
+        if (io && connectedUsers && typeof connectedUsers.get === 'function') {
+          const adminSocketId = connectedUsers.get(admin.id);
+          if (adminSocketId) {
+            io.to(adminSocketId).emit('notification', {
+              type: 'new_user_pending',
+              title: 'Новый пользователь ожидает одобрения',
+              message: `${name} (${email}) зарегистрировался`,
+            });
+          }
         }
+      } catch (wsErr) {
+        console.error('WebSocket уведомление не отправлено:', wsErr.message);
       }
     }
 
@@ -103,8 +111,8 @@ const register = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('Registration error:', err);
+    res.status(500).json({ error: 'Ошибка сервера при регистрации' });
   }
 };
 
@@ -151,31 +159,48 @@ const login = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('Login error:', err);
+    res.status(500).json({ error: 'Ошибка сервера при входе' });
   }
 };
 
 // GET /api/auth/me
 const me = async (req, res) => {
-  res.json({
-    id: req.user.id,
-    name: req.user.name,
-    email: req.user.email,
-    role: req.user.role,
-    position: req.user.position,
-    avatar: req.user.avatar,
-    phone: req.user.phone,
-    isSuperAdmin: req.user.isSuperAdmin,
-  });
+  try {
+    res.json({
+      id: req.user.id,
+      name: req.user.name,
+      email: req.user.email,
+      role: req.user.role,
+      position: req.user.position,
+      avatar: req.user.avatar,
+      phone: req.user.phone,
+      isSuperAdmin: req.user.isSuperAdmin,
+    });
+  } catch (err) {
+    console.error('Me error:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
 };
 
 // POST /api/auth/change-password
 const changePassword = async (req, res) => {
   const { currentPassword, newPassword } = req.body;
 
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Заполните все поля' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'Новый пароль должен быть не менее 6 символов' });
+  }
+
   try {
     const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
     const isMatch = await bcrypt.compare(currentPassword, user.password);
     if (!isMatch) {
       return res.status(400).json({ error: 'Неверный текущий пароль' });
@@ -184,10 +209,10 @@ const changePassword = async (req, res) => {
     user.password = await bcrypt.hash(newPassword, 12);
     await user.save();
 
-    res.json({ message: 'Пароль изменён' });
+    res.json({ message: 'Пароль успешно изменён' });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Ошибка сервера при смене пароля' });
   }
 };
 
