@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FileText, Download, Plus, Eye, Trash2, Copy } from 'lucide-react';
-import api from '.../api/axios';
+import api from '../../api/axios';
 import { getExportUrl } from '../../api/axios';
 
 const TEMPLATE_VARS = [
