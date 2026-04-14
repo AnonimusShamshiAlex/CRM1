@@ -4,7 +4,7 @@ import {
   TrendingUp, Users, DollarSign, CheckSquare,
   AlertCircle, ArrowRight, Target
 } from 'lucide-react';
-import api from '../../api/axios';
+import api from '../api/axios';
 import useAuthStore from '../../store/authStore';
 
 const fmt = (n) =>
