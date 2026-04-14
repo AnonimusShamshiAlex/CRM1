@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Users, Shuffle, CheckCircle, ArrowRight } from 'lucide-react';
-import api from '../api/axios';
+import api from '../../api/axios';
 
 export default function LeadDistributionPage() {
   const [managers, setManagers] = useState([]);
   const [unassigned, setUnassigned] = useState([]);
-  const [distribution, setDistribution] = useState({}); // managerId -> [clientIds]
+  const [distribution, setDistribution] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
-  const [mode, setMode] = useState('equal'); // equal | manual
+  const [mode, setMode] = useState('equal');
 
   useEffect(() => {
     const load = async () => {
@@ -23,7 +23,6 @@ export default function LeadDistributionPage() {
         setManagers(mgrs);
         setUnassigned(clients);
 
-        // Автораспределение поровну
         autoDistribute(mgrs, clients);
       } catch (e) {
         console.error(e);
@@ -116,7 +115,6 @@ export default function LeadDistributionPage() {
         </div>
       ) : (
         <>
-          {/* Controls */}
           <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
             <button className="btn btn-secondary" onClick={shuffleDistribute}>
               <Shuffle size={14} /> Перемешать случайно
@@ -133,7 +131,6 @@ export default function LeadDistributionPage() {
             </button>
           </div>
 
-          {/* Manager cards */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
@@ -148,7 +145,6 @@ export default function LeadDistributionPage() {
                   borderRadius: 'var(--radius-md)',
                   overflow: 'hidden',
                 }}>
-                  {/* Manager header */}
                   <div style={{
                     padding: '14px 16px',
                     borderBottom: '1px solid var(--border-color)',
@@ -177,7 +173,6 @@ export default function LeadDistributionPage() {
                     </div>
                   </div>
 
-                  {/* Load bar */}
                   <div style={{ padding: '8px 16px 0' }}>
                     <div style={{ height: 4, background: 'var(--bg-tertiary)', borderRadius: 99 }}>
                       <div style={{
@@ -192,7 +187,6 @@ export default function LeadDistributionPage() {
                     </div>
                   </div>
 
-                  {/* Client list */}
                   <div style={{ padding: '8px 0', maxHeight: 220, overflowY: 'auto' }}>
                     {mgrClients.length === 0 ? (
                       <div style={{ padding: '16px', textAlign: 'center', fontSize: 12, color: 'var(--text-tertiary)' }}>
@@ -211,7 +205,6 @@ export default function LeadDistributionPage() {
                             </div>
                             <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{c.phone || c.email}</div>
                           </div>
-                          {/* Переместить к другому менеджеру */}
                           <select
                             value=""
                             onChange={(e) => {
