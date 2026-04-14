@@ -1,130 +1,257 @@
+import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
   FolderKanban,
-  ListTodo,
-  Receipt,
-  UsersRound,
+  CheckSquare,
+  DollarSign,
+  GitMerge,
+  UserCog,
+  BarChart2,
+  Settings,
   ChevronLeft,
   ChevronRight,
-  Layers,
-  BarChart2,
+  Phone,
   Trophy,
-  Settings,
 } from 'lucide-react';
-import { useState } from 'react';
-import clsx from 'clsx';
 import useAuthStore from '../../store/authStore';
-import useUIStore from '../../store/uiStore';
+import useUiStore from '../../store/uiStore';
+
+/* ──────────────────────────────────────────────
+   Ролевые ограничения:
+   roles: [] = видят все
+   roles: ['admin','superadmin'] = только эти роли
+────────────────────────────────────────────── */
+const NAV_ITEMS = [
+  {
+    label: 'Дашборд',
+    icon: LayoutDashboard,
+    path: '/dashboard',
+    roles: [], // все
+  },
+  {
+    label: 'Лиды / Клиенты',
+    icon: Users,
+    path: '/clients',
+    roles: [], // все
+  },
+  {
+    label: 'Проекты',
+    icon: FolderKanban,
+    path: '/projects',
+    roles: [], // все
+  },
+  {
+    label: 'Задачи',
+    icon: CheckSquare,
+    path: '/tasks',
+    roles: [], // все
+  },
+  {
+    label: 'Воронки',
+    icon: GitMerge,
+    path: '/pipelines',
+    roles: ['superadmin', 'admin', 'rop'],
+  },
+  {
+    label: 'Финансы',
+    icon: DollarSign,
+    path: '/finance',
+    // Маркетолог и менеджер НЕ видят финансы
+    roles: ['superadmin', 'admin', 'rop'],
+  },
+  {
+    label: 'Телефония',
+    icon: Phone,
+    path: '/telephony',
+    roles: ['superadmin', 'admin', 'rop'],
+  },
+  {
+    label: 'Менеджеры',
+    icon: Trophy,
+    path: '/managers/rating',
+    roles: ['superadmin', 'admin', 'rop'],
+  },
+  {
+    label: 'Аналитика',
+    icon: BarChart2,
+    path: '/managers/dashboard',
+    // Маркетолог видит только свой дашборд
+    roles: ['superadmin', 'admin', 'rop', 'marketer'],
+  },
+  {
+    label: 'Команда',
+    icon: UserCog,
+    path: '/team',
+    roles: ['superadmin', 'admin'],
+  },
+  {
+    label: 'Настройки',
+    icon: Settings,
+    path: '/settings',
+    // Маркетолог и менеджер НЕ видят настройки системы
+    roles: ['superadmin', 'admin'],
+  },
+];
 
 export default function Sidebar() {
-  const { sidebarCollapsed: collapsed, toggleSidebar } = useUIStore();
   const { user } = useAuthStore();
+  const { sidebarCollapsed, toggleSidebar } = useUiStore();
 
-  const role = user?.role;
-  const isAdmin = ['admin', 'director'].includes(role);
-  const isManager = ['admin', 'director', 'head_of_sales', 'manager'].includes(role);
-  const isHeadOrAbove = ['admin', 'director', 'head_of_sales'].includes(role);
+  const userRole = user?.role || 'manager';
 
-  const navigation = [
-    { name: 'Дашборд', to: '/', icon: LayoutDashboard, show: true },
-    { name: 'Клиенты', to: '/clients', icon: Users, show: true },
-    { name: 'Воронки продаж', to: '/pipelines', icon: Layers, show: true },
-    { name: 'Проекты', to: '/projects', icon: FolderKanban, show: true },
-    { name: 'Задачи', to: '/tasks', icon: ListTodo, show: true },
-    { name: 'Финансы', to: '/finance', icon: Receipt, show: isHeadOrAbove },
-    { name: 'Мой дашборд', to: '/manager/dashboard', icon: BarChart2, show: isManager },
-    { name: 'Рейтинг', to: '/managers/rating', icon: Trophy, show: isHeadOrAbove },
-    { name: 'Команда', to: '/team', icon: UsersRound, show: true },
-  ];
+  // Фильтруем пункты меню по роли
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.roles.length === 0) return true; // видят все
+    return item.roles.includes(userRole);
+  });
 
-  const settingsNav = [
-    { name: 'Поля клиента', to: '/settings/client-fields', icon: Settings, show: isAdmin },
-  ];
+  const W = sidebarCollapsed ? 64 : 240;
 
   return (
-    <aside
-      className={clsx(
-        'fixed left-0 top-0 h-screen bg-white border-r border-gray-200 flex flex-col transition-all duration-200 z-30',
-        collapsed ? 'w-[68px]' : 'w-[240px]'
-      )}
-    >
-      {/* Логотип */}
-      <div className="h-16 flex items-center px-4 border-b border-gray-200">
-        <div className="w-9 h-9 bg-primary-600 rounded-lg flex items-center justify-center shrink-0">
-          <span className="text-white font-bold text-sm">CS</span>
-        </div>
-        {!collapsed && (
-          <span className="ml-3 font-bold text-gray-900 text-lg">CRM Studio</span>
+    <aside style={{
+      width: W,
+      minHeight: '100vh',
+      background: 'var(--bg-sidebar)',
+      display: 'flex',
+      flexDirection: 'column',
+      transition: 'width 0.25s ease',
+      position: 'relative',
+      flexShrink: 0,
+    }}>
+      {/* Logo */}
+      <div style={{
+        height: 60,
+        display: 'flex',
+        alignItems: 'center',
+        padding: sidebarCollapsed ? '0 16px' : '0 20px',
+        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        overflow: 'hidden',
+        gap: 10,
+      }}>
+        <div style={{
+          width: 28,
+          height: 28,
+          borderRadius: 8,
+          background: 'var(--accent)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontWeight: 700,
+          fontSize: 14,
+          color: '#fff',
+          flexShrink: 0,
+        }}>C</div>
+        {!sidebarCollapsed && (
+          <span style={{
+            color: '#fff',
+            fontWeight: 600,
+            fontSize: 16,
+            whiteSpace: 'nowrap',
+          }}>CRM Studio</span>
         )}
       </div>
 
-      {/* Навигация */}
-      <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-        {navigation.filter(i => i.show).map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/'}
-            className={({ isActive }) =>
-              clsx(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition',
-                isActive
-                  ? 'bg-primary-50 text-primary-700'
-                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-              )
-            }
-          >
-            <item.icon className="w-5 h-5 shrink-0" />
-            {!collapsed && <span>{item.name}</span>}
-          </NavLink>
+      {/* Nav */}
+      <nav style={{ flex: 1, padding: '12px 0', overflowY: 'auto', overflowX: 'hidden' }}>
+        {visibleItems.map((item) => (
+          <SidebarLink
+            key={item.path}
+            item={item}
+            collapsed={sidebarCollapsed}
+          />
         ))}
-
-        {/* Настройки (только admin) */}
-        {settingsNav.filter(i => i.show).length > 0 && (
-          <>
-            {!collapsed && (
-              <p className="px-3 pt-4 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-                Настройки
-              </p>
-            )}
-            {settingsNav.filter(i => i.show).map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  clsx(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition',
-                    isActive
-                      ? 'bg-primary-50 text-primary-700'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  )
-                }
-              >
-                <item.icon className="w-5 h-5 shrink-0" />
-                {!collapsed && <span>{item.name}</span>}
-              </NavLink>
-            ))}
-          </>
-        )}
       </nav>
 
       {/* Role badge */}
-      {!collapsed && user && (
-        <div className="px-4 py-2 border-t border-gray-100">
-          <p className="text-xs text-gray-400 truncate">{user.name}</p>
-          <p className="text-[10px] text-primary-600 font-medium capitalize">{user.role}</p>
+      {!sidebarCollapsed && (
+        <div style={{
+          padding: '12px 16px',
+          borderTop: '1px solid rgba(255,255,255,0.07)',
+          fontSize: 11,
+          color: 'rgba(255,255,255,0.35)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+        }}>
+          {roleLabel(userRole)}
         </div>
       )}
 
-      {/* Свернуть/развернуть */}
+      {/* Collapse toggle */}
       <button
         onClick={toggleSidebar}
-        className="m-3 p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition"
+        title={sidebarCollapsed ? 'Развернуть' : 'Свернуть'}
+        style={{
+          position: 'absolute',
+          bottom: 52,
+          right: -12,
+          width: 24,
+          height: 24,
+          borderRadius: '50%',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-color)',
+          boxShadow: 'var(--shadow-sm)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          color: 'var(--text-secondary)',
+          zIndex: 10,
+        }}
       >
-        {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+        {sidebarCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
       </button>
     </aside>
   );
+}
+
+function SidebarLink({ item, collapsed }) {
+  const Icon = item.icon;
+  return (
+    <NavLink
+      to={item.path}
+      title={collapsed ? item.label : undefined}
+      style={({ isActive }) => ({
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: collapsed ? '10px 18px' : '10px 16px',
+        margin: '2px 8px',
+        borderRadius: 8,
+        textDecoration: 'none',
+        color: isActive ? 'var(--text-sidebar-active)' : 'var(--text-sidebar)',
+        background: isActive ? 'var(--bg-sidebar-active)' : 'transparent',
+        fontWeight: isActive ? 500 : 400,
+        fontSize: 14,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        transition: 'all 0.15s ease',
+      })}
+      onMouseEnter={(e) => {
+        if (!e.currentTarget.classList.contains('active')) {
+          e.currentTarget.style.background = 'var(--bg-sidebar-hover)';
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!e.currentTarget.classList.contains('active')) {
+          e.currentTarget.style.background = 'transparent';
+        }
+      }}
+    >
+      <Icon size={18} style={{ flexShrink: 0 }} />
+      {!collapsed && <span>{item.label}</span>}
+    </NavLink>
+  );
+}
+
+function roleLabel(role) {
+  const map = {
+    superadmin: 'Суперадмин',
+    admin: 'Администратор',
+    rop: 'Руководитель отдела продаж',
+    marketer: 'Маркетолог',
+    manager: 'Менеджер',
+  };
+  return map[role] || role;
 }

@@ -1,431 +1,343 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, Search, LayoutGrid, List, Download, ChevronDown, Layers } from 'lucide-react';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import api, { API_BASE } from '../../api/axios';
+import React, { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Search, Filter, Upload, Download, LayoutList, Kanban } from 'lucide-react';
+import api from '../../api/axios';
 import useAuthStore from '../../store/authStore';
 import Badge from '../../components/ui/Badge';
-import Modal from '../../components/ui/Modal';
-import ClientForm from './ClientForm';
-import { CLIENT_SOURCES, getStatusInfo, formatDate } from '../../utils/constants';
-import clsx from 'clsx';
+
+const PAGE_SIZE = 20;
 
 export default function ClientsPage() {
+  const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const isManager = user?.role === 'manager';
+  const canExport = ['superadmin', 'admin', 'rop'].includes(user?.role);
+  const canImport = ['superadmin', 'admin', 'rop'].includes(user?.role);
+
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('kanban');
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'kanban'
   const [search, setSearch] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [editClient, setEditClient] = useState(null);
-  const { token } = useAuthStore();
-
-  const handleExport = (url) => {
-    if (!token) {
-      alert('Сессия истекла. Войдите заново.');
-      window.location.href = '/login';
-      return;
-    }
-    window.location.href = url;
-  };
-
+  const [projects, setProjects] = useState([]);
+  const [filters, setFilters] = useState({
+    projectId: '',
+    status: '',
+    pipelineId: '',
+  });
   const [pipelines, setPipelines] = useState([]);
-  const [selectedPipeline, setSelectedPipeline] = useState(null);
-  const [pipelinesLoading, setPipelinesLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
 
-  // Загружаем воронки
+  // Загружаем проекты и воронки для фильтров
   useEffect(() => {
-    api.get('/pipelines').then(({ data }) => {
-      setPipelines(data);
-    }).catch(() => {}).finally(() => setPipelinesLoading(false));
-  }, []);
+    const load = async () => {
+      try {
+        const [projRes, pipeRes] = await Promise.all([
+          api.get('/projects'),
+          api.get('/pipelines'),
+        ]);
+        setProjects(projRes.data?.projects || projRes.data || []);
+        setPipelines(pipeRes.data || []);
+
+        // Если менеджер — автоматически фильтруем по его проекту
+        if (isManager && user?.projectId) {
+          setFilters((f) => ({ ...f, projectId: String(user.projectId) }));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    load();
+  }, [isManager, user]);
 
   const fetchClients = useCallback(async () => {
+    setLoading(true);
     try {
-      const params = { search, limit: 200 };
-      if (selectedPipeline) params.pipelineId = selectedPipeline.id;
-      const { data } = await api.get('/clients', { params });
-      setClients(data.clients);
-    } catch (err) {
-      console.error(err);
+      const params = {
+        page,
+        limit: PAGE_SIZE,
+        search: search || undefined,
+        projectId: filters.projectId || undefined,
+        status: filters.status || undefined,
+        pipelineId: filters.pipelineId || undefined,
+      };
+      const res = await api.get('/clients', { params });
+      setClients(res.data?.clients || res.data || []);
+      setTotal(res.data?.total || 0);
+    } catch (e) {
+      console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [search, selectedPipeline]);
+  }, [page, search, filters]);
 
   useEffect(() => {
-    fetchClients();
+    const t = setTimeout(fetchClients, 300);
+    return () => clearTimeout(t);
   }, [fetchClients]);
 
-  // Этапы текущей воронки
-  const stages = selectedPipeline?.stages || [];
-
-const handleDragEnd = async (result) => {
-  if (!result.destination) return;
-  const { draggableId, destination } = result;
-  const newStageId = destination.droppableId;
-
-  // Если перетащили в "__no_pipeline__" — отвязываем от воронки
-  if (newStageId === '__no_pipeline__') {
-    setClients((prev) =>
-      prev.map((c) => (c.id === draggableId ? { ...c, pipelineStageId: null, pipelineId: null } : c))
-    );
-    try {
-      await api.patch(`/clients/${draggableId}/pipeline-stage`, {
-        pipelineId: '',
-        pipelineStageId: '',
-        stageOrder: destination.index,
-      });
-    } catch {
-      fetchClients();
-    }
-    return;
-  }
-
-  // Определяем pipelineId из этапа
-  let targetPipelineId = selectedPipeline?.id;
-
-  // Если мы на вкладке "Все" — найдём pipelineId по stageId
-  if (!targetPipelineId) {
-    for (const p of pipelines) {
-      const found = (p.stages || []).find(s => String(s.id) === String(newStageId));
-      if (found) {
-        targetPipelineId = p.id;
-        break;
-      }
-    }
-  }
-
-  setClients((prev) =>
-    prev.map((c) => (c.id === draggableId
-      ? { ...c, pipelineStageId: newStageId, pipelineId: targetPipelineId }
-      : c))
-  );
-
-  try {
-    await api.patch(`/clients/${draggableId}/pipeline-stage`, {
-      pipelineId: targetPipelineId || '',
-      pipelineStageId: newStageId,
-      stageOrder: destination.index,
-    });
-  } catch {
-    fetchClients();
-  }
-};
-
-  const handleSaved = () => {
-    setShowForm(false);
-    setEditClient(null);
-    fetchClients();
+  const handleFilterChange = (key, val) => {
+    setFilters((f) => ({ ...f, [key]: val }));
+    setPage(1);
   };
 
-  if (loading || pipelinesLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const statusOptions = [
+    { value: '', label: 'Все статусы' },
+    { value: 'lead', label: 'Лид' },
+    { value: 'active', label: 'Активный' },
+    { value: 'inactive', label: 'Неактивный' },
+    { value: 'lost', label: 'Потерян' },
+  ];
 
   return (
-    <div className="space-y-4">
-      {/* Шапка */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Клиенты и лиды</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => handleExport(`${API_BASE}/export/clients?token=${token}`)}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition text-sm font-medium text-gray-700"
-          >
-            <Download className="w-4 h-4" />
-            Excel
-          </button>
-          <button
-            onClick={() => { setEditClient(null); setShowForm(true); }}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" />
-            Новый клиент
+    <div style={{ padding: 24 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>
+            Лиды и клиенты
+          </h1>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
+            Всего: {total}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          {canImport && (
+            <button className="btn btn-secondary" style={{ fontSize: 13 }} onClick={() => navigate('/clients/import')}>
+              <Upload size={14} /> Импорт CSV
+            </button>
+          )}
+          {canExport && (
+            <button className="btn btn-secondary" style={{ fontSize: 13 }} onClick={() => window.open('/api/export/clients?format=xlsx')}>
+              <Download size={14} /> Экспорт
+            </button>
+          )}
+          <button className="btn btn-primary" style={{ fontSize: 13 }} onClick={() => navigate('/clients/new')}>
+            <Plus size={14} /> Добавить
           </button>
         </div>
       </div>
 
-      {/* Выбор воронки */}
-      {pipelines.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1 text-sm text-gray-500">
-            <Layers className="w-4 h-4" />
-            <span>Воронка:</span>
-          </div>
-          <button
-            onClick={() => setSelectedPipeline(null)}
-            className={clsx(
-              'px-3 py-1.5 rounded-lg text-sm font-medium transition border',
-              !selectedPipeline
-                ? 'bg-primary-600 text-white border-primary-600'
-                : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300'
-            )}
-          >
-            Все
-          </button>
-          {pipelines.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setSelectedPipeline(p)}
-              className={clsx(
-                'px-3 py-1.5 rounded-lg text-sm font-medium transition border',
-                selectedPipeline?.id === p.id
-                  ? 'bg-primary-600 text-white border-primary-600'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300'
-              )}
-            >
-              {p.name}
-            </button>
+      {/* Search + filter bar */}
+      <div style={{
+        display: 'flex',
+        gap: 10,
+        marginBottom: 16,
+        flexWrap: 'wrap',
+        alignItems: 'center',
+      }}>
+        {/* Search */}
+        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+          <Search size={14} style={{
+            position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+            color: 'var(--text-tertiary)',
+          }} />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Поиск по имени, email, телефону..."
+            style={{ paddingLeft: 32 }}
+          />
+        </div>
+
+        {/* Фильтр по проекту — ТЗ: менеджер видит только свою выборку */}
+        <select
+          value={filters.projectId}
+          onChange={(e) => handleFilterChange('projectId', e.target.value)}
+          disabled={isManager} // менеджер не может менять свой фильтр
+          style={{ width: 180, cursor: isManager ? 'not-allowed' : 'pointer', opacity: isManager ? 0.6 : 1 }}
+          title={isManager ? 'Вы видите только свой проект' : 'Фильтр по проекту'}
+        >
+          <option value="">Все проекты</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
           ))}
-          {pipelines.length === 0 && (
-            <Link to="/pipelines" className="text-xs text-primary-600 hover:underline">
-              Создать воронку
-            </Link>
-          )}
+        </select>
+
+        {/* Статус */}
+        <select
+          value={filters.status}
+          onChange={(e) => handleFilterChange('status', e.target.value)}
+          style={{ width: 150 }}
+        >
+          {statusOptions.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+
+        {/* Воронка */}
+        <select
+          value={filters.pipelineId}
+          onChange={(e) => handleFilterChange('pipelineId', e.target.value)}
+          style={{ width: 160 }}
+        >
+          <option value="">Все воронки</option>
+          {pipelines.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+
+        {/* View toggle */}
+        <div style={{ display: 'flex', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+          <ViewBtn active={viewMode === 'list'} onClick={() => setViewMode('list')} icon={<LayoutList size={14} />} />
+          <ViewBtn active={viewMode === 'kanban'} onClick={() => setViewMode('kanban')} icon={<Kanban size={14} />} />
+        </div>
+      </div>
+
+      {/* Active filters hint */}
+      {isManager && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '6px 12px', background: 'var(--info-light)',
+          borderRadius: 'var(--radius-sm)', marginBottom: 14,
+          fontSize: 12, color: 'var(--info)',
+        }}>
+          <Filter size={12} />
+          Показаны только клиенты вашего проекта
         </div>
       )}
 
-      {/* Фильтры */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск клиентов..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
-          />
-        </div>
-        <div className="flex bg-gray-100 rounded-lg p-0.5">
-          <button
-            onClick={() => setView('kanban')}
-            className={clsx('p-2 rounded-md transition', view === 'kanban' ? 'bg-white shadow-sm' : 'text-gray-500')}
-          >
-            <LayoutGrid className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => setView('list')}
-            className={clsx('p-2 rounded-md transition', view === 'list' ? 'bg-white shadow-sm' : 'text-gray-500')}
-          >
-            <List className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Kanban — динамические колонки из воронки */}
-      {view === 'kanban' && !loading && !pipelinesLoading && (
+      {/* Table */}
+      {loading ? (
+        <LoadingSkeleton />
+      ) : clients.length === 0 ? (
+        <EmptyState onAdd={() => navigate('/clients/new')} />
+      ) : (
         <>
-          {stages.length > 0 || clients.length > 0 ? (
-            <DragDropContext onDragEnd={handleDragEnd}>
-              <div className="flex gap-4 overflow-x-auto pb-4">
-                {/* Колонка клиентов без воронки */}
-                {clients.some(c => !c.pipelineStageId) && (
-                  <Droppable droppableId="__no_pipeline__">
-                    {(provided, snapshot) => (
-                      <div
-                        ref={provided.innerRef}
-                        {...provided.droppableProps}
-                        className={clsx(
-                          'min-w-[280px] w-[280px] bg-gray-50 rounded-xl p-3 border-2 border-dashed border-gray-200',
-                          snapshot.isDraggingOver && 'bg-primary-50'
-                        )}
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="text-sm font-semibold text-gray-500">Без воронки</h3>
-                          <span className="text-xs text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">
-                            {clients.filter(c => !c.pipelineStageId).length}
-                          </span>
-                        </div>
-                        <div className="space-y-2 min-h-[60px]">
-                          {clients.filter(c => !c.pipelineStageId).map((client, index) => (
-                            <Draggable key={client.id} draggableId={client.id} index={index}>
-                              {(provided) => (
-                                <div
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  {...provided.dragHandleProps}
-                                  className="bg-white rounded-lg p-3 shadow-sm border border-gray-200 hover:shadow transition cursor-pointer"
-                                >
-                                  <Link to={`/clients/${client.id}`}>
-                                    <p className="text-sm font-medium text-gray-900">{client.name}</p>
-                                    {client.companyName && (
-                                      <p className="text-xs text-gray-500 mt-0.5">{client.companyName}</p>
-                                    )}
-                                  </Link>
-                                </div>
-                              )}
-                            </Draggable>
-                          ))}
-                          {provided.placeholder}
-                        </div>
-                      </div>
-                    )}
-                  </Droppable>
-                )}
-                {stages.map((stage) => {
-                  const stageClients = clients.filter((c) => String(c.pipelineStageId) === String(stage.id));
-                  return (
-                    <Droppable droppableId={String(stage.id)} key={stage.id}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.droppableProps}
-                          className={clsx(
-                            'min-w-[280px] w-[280px] bg-gray-100 rounded-xl p-3',
-                            snapshot.isDraggingOver && 'bg-primary-50'
-                          )}
-                        >
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: stage.color || '#6366f1' }}
-                              />
-                              <h3 className="text-sm font-semibold text-gray-700">{stage.name}</h3>
-                            </div>
-                            <span className="text-xs text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">
-                              {stageClients.length}
-                            </span>
-                          </div>
-                          <div className="space-y-2 min-h-[60px]">
-                            {stageClients.map((client, index) => (
-                              <Draggable key={client.id} draggableId={client.id} index={index}>
-                                {(provided) => (
-                                  <div
-                                    ref={provided.innerRef}
-                                    {...provided.draggableProps}
-                                    {...provided.dragHandleProps}
-                                    className="bg-white rounded-lg p-3 shadow-sm border border-gray-200 hover:shadow transition cursor-pointer"
-                                  >
-                                    <Link to={`/clients/${client.id}`}>
-                                      <p className="text-sm font-medium text-gray-900">{client.name}</p>
-                                      {client.companyName && (
-                                        <p className="text-xs text-gray-500 mt-0.5">{client.companyName}</p>
-                                      )}
-                                      {client.leadTags?.length > 0 && (
-                                        <div className="flex flex-wrap gap-1 mt-1.5">
-                                          {client.leadTags.map((t, i) => (
-                                            <span key={i} className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-full">
-                                              {t}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      )}
-                                      <div className="flex items-center gap-2 mt-2">
-                                        {client.source && (
-                                          <span className="text-[10px] text-gray-400">{client.source}</span>
-                                        )}
-                                        {client.manager && (
-                                          <span className="text-[10px] text-gray-400 ml-auto">
-                                            {client.manager.name}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </Link>
-                                  </div>
-                                )}
-                              </Draggable>
-                            ))}
-                            {provided.placeholder}
-                          </div>
-                        </div>
+          <div style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-md)',
+            overflow: 'hidden',
+          }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Имя / Компания</th>
+                  <th>Контакты</th>
+                  <th>Статус</th>
+                  <th>Проект</th>
+                  <th>Воронка</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody>
+                {clients.map((c) => (
+                  <tr
+                    key={c.id}
+                    onClick={() => navigate(`/clients/${c.id}`)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <td>
+                      <div style={{ fontWeight: 500 }}>{c.name}</div>
+                      {c.company && (
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{c.company}</div>
                       )}
-                    </Droppable>
-                  );
-                })}
-              </div>
-            </DragDropContext>
-          ) : (
-            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-              <Layers className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-400">
-                {!selectedPipeline 
-                  ? 'Выберите воронку для отображения в виде Канбан или переключитесь на список'
-                  : pipelines.length === 0
-                  ? 'Создайте воронку продаж чтобы начать работу'
-                  : 'В этой воронке нет этапов'}
-              </p>
-              <Link to="/pipelines" className="mt-3 inline-block text-sm text-primary-600 hover:underline">
-                Настроить воронки →
-              </Link>
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 13 }}>{c.email}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{c.phone}</div>
+                    </td>
+                    <td><StatusBadge status={c.status} /></td>
+                    <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                      {c.project?.name || '—'}
+                    </td>
+                    <td style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                      {c.pipeline?.name || '—'}
+                    </td>
+                    <td style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+                      {new Date(c.createdAt).toLocaleDateString('ru-RU')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {total > PAGE_SIZE && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
+              <button
+                className="btn btn-secondary"
+                disabled={page === 1}
+                onClick={() => setPage((p) => p - 1)}
+              >← Назад</button>
+              <span style={{ padding: '8px 12px', fontSize: 14, color: 'var(--text-secondary)' }}>
+                {page} / {Math.ceil(total / PAGE_SIZE)}
+              </span>
+              <button
+                className="btn btn-secondary"
+                disabled={page >= Math.ceil(total / PAGE_SIZE)}
+                onClick={() => setPage((p) => p + 1)}
+              >Вперёд →</button>
             </div>
           )}
         </>
       )}
-      {view === 'kanban' && (loading || pipelinesLoading) && (
-        <div className="flex items-center justify-center h-64">
-          <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
+function ViewBtn({ active, onClick, icon }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '6px 10px',
+        background: active ? 'var(--accent)' : 'var(--bg-card)',
+        color: active ? '#fff' : 'var(--text-secondary)',
+        border: 'none',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+      }}
+    >{icon}</button>
+  );
+}
+
+function StatusBadge({ status }) {
+  const map = {
+    lead: { label: 'Лид', color: 'var(--info)', bg: 'var(--info-light)' },
+    active: { label: 'Активный', color: 'var(--success)', bg: 'var(--success-light)' },
+    inactive: { label: 'Неактивный', color: 'var(--text-secondary)', bg: 'var(--bg-tertiary)' },
+    lost: { label: 'Потерян', color: 'var(--danger)', bg: 'var(--danger-light)' },
+  };
+  const s = map[status] || { label: status, color: 'var(--text-secondary)', bg: 'var(--bg-tertiary)' };
+  return (
+    <span style={{
+      padding: '3px 8px',
+      borderRadius: 99,
+      fontSize: 12,
+      fontWeight: 500,
+      background: s.bg,
+      color: s.color,
+    }}>{s.label}</span>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+      {[...Array(6)].map((_, i) => (
+        <div key={i} style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: 12 }}>
+          {[...Array(5)].map((_, j) => (
+            <div key={j} style={{ flex: 1, height: 14, background: 'var(--bg-tertiary)', borderRadius: 4, animation: 'pulse 1.5s ease infinite' }} />
+          ))}
         </div>
-      )}
-      {view !== 'kanban' && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Имя / Компания</th>
-                <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Контакты</th>
-                <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Этап</th>
-                <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Источник</th>
-                <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Теги</th>
-                <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Менеджер</th>
-                <th className="text-left text-xs font-medium text-gray-500 px-4 py-3">Дата</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {clients.map((c) => {
-                const stageName = stages.find(s => s.id === c.pipelineStageId)?.name || c.stage || '—';
-                const stageColor = stages.find(s => s.id === c.pipelineStageId)?.color;
-                return (
-                  <tr key={c.id} className="hover:bg-gray-50 transition">
-                    <td className="px-4 py-3">
-                      <Link to={`/clients/${c.id}`} className="text-sm font-medium text-gray-900 hover:text-primary-600">
-                        {c.name}
-                      </Link>
-                      {c.companyName && <p className="text-xs text-gray-400">{c.companyName}</p>}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">
-                      {c.email && <div>{c.email}</div>}
-                      {c.phone && <div>{c.phone}</div>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white"
-                        style={{ backgroundColor: stageColor || '#6b7280' }}
-                      >
-                        {stageName}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{c.source || '—'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {c.leadTags?.map((t, i) => (
-                          <span key={i} className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-full">{t}</span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500">{c.manager?.name || '—'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-400">{formatDate(c.createdAt)}</td>
-                  </tr>
-                );
-              })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      {/* Форма создания */}
-      <Modal open={showForm} onClose={() => setShowForm(false)} title={editClient ? 'Редактировать клиента' : 'Новый клиент'} size="lg">
-        <ClientForm
-          client={editClient}
-          pipelines={pipelines}
-          onSaved={handleSaved}
-          onCancel={() => setShowForm(false)}
-        />
-      </Modal>
+      ))}
+    </div>
+  );
+}
+
+function EmptyState({ onAdd }) {
+  return (
+    <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-secondary)' }}>
+      <div style={{ fontSize: 40, marginBottom: 12 }}>👥</div>
+      <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>Нет клиентов</div>
+      <div style={{ fontSize: 14, marginBottom: 20 }}>Добавьте первого клиента или импортируйте базу</div>
+      <button className="btn btn-primary" onClick={onAdd}><Plus size={14} /> Добавить клиента</button>
     </div>
   );
 }

@@ -1,23 +1,27 @@
+import React from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
-import useUIStore from '../../store/uiStore';
-import clsx from 'clsx';
+import { useSessionTimeout } from '../../hooks/useSessionTimeout';
 
 export default function AppLayout() {
-  const { sidebarCollapsed } = useUIStore();
+  // ТЗ: Session Control — автовыход при неактивности
+  useSessionTimeout();
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div style={{
+      display: 'flex',
+      minHeight: '100vh',
+      background: 'var(--bg-secondary)',
+    }}>
       <Sidebar />
-      <div 
-        className={clsx(
-          'transition-all duration-200',
-          sidebarCollapsed ? 'ml-[68px]' : 'ml-[240px]'
-        )}
-      >
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Header />
-        <main className="p-6">
+        <main style={{
+          flex: 1,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+        }}>
           <Outlet />
         </main>
       </div>
