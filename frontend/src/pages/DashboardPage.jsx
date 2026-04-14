@@ -5,7 +5,7 @@ import {
   AlertCircle, ArrowRight, Target
 } from 'lucide-react';
 import api from '../api/axios';
-import useAuthStore from '../../store/authStore';
+import useAuthStore from '../store/authStore';
 
 const fmt = (n) =>
   new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(n || 0);
