@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Star, TrendingUp, Phone, Mail, Clock, FileText, MessageCircle } from 'lucide-react';
-import api from '../../api/axios';
+import api from '../api/axios';
 
 // ТЗ: Lead Scoring — система оценки качества лидов
 // Оценка строится на основе заполненности данных + активности

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Search, Filter, Clock, User, Edit, Trash2, Plus, LogIn } from 'lucide-react';
-import api from '../../api/axios';
+import api from '../api/axios';
 
 const ACTION_ICONS = {
   create: <Plus size={14} color="var(--success)" />,

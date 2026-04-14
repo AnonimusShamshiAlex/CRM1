@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, AlertCircle, CheckCircle, ArrowLeft, FileText, Users } from 'lucide-react';
-import api from '../../api/axios';
+import api from '../api/axios';
 
 const REQUIRED_COLUMNS = ['name'];
 const OPTIONAL_COLUMNS = ['email', 'phone', 'company', 'status', 'projectId'];

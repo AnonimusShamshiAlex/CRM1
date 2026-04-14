@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Users, Shuffle, CheckCircle, ArrowRight } from 'lucide-react';
-import api from '../../api/axios';
+import api from '../api/axios';
 
 export default function LeadDistributionPage() {
   const [managers, setManagers] = useState([]);
