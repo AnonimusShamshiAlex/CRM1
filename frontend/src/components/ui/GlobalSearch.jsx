@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Users, FolderKanban, CheckSquare, FileText, X } from 'lucide-react';
-import api from '../api/axios';
+import api from '../../api/axios';
+import useAuthStore from '../../store/authStore';
 
 const ENTITY_CONFIG = {
   clients: {
