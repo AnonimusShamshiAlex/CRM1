@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Trash2, Send, CheckCircle, XCircle, Copy } from 'lucide-react';
-import api from '../api/axios';
+import api from '../../api/axios';
 
 const EVENT_OPTIONS = [
   { value: 'client.created', label: 'Новый лид создан' },
