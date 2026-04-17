@@ -4,27 +4,8 @@ const router = express.Router();
 // Импорт моделей из models/index.js
 const { User, Client, Project, Task, Invoice, Expense, Pipeline, PipelineStage, Interaction, TimeLog, Notification, ActivityLog } = require('../models');
 
-// Импорт контроллеров (некоторые могут отсутствовать)
+// Импорт контроллеров (только authController точно существует)
 const authController = require('../controllers/authController');
-let clientController, projectController, taskController, financeController, dashboardController;
-let pipelineController, clientFieldController, telephonyController, fileController, exportController;
-let searchController, webhookController, documentController, metricsController, twoFactorController;
-
-try { clientController = require('../controllers/clientController'); } catch(e) { clientController = null; }
-try { projectController = require('../controllers/projectController'); } catch(e) { projectController = null; }
-try { taskController = require('../controllers/taskController'); } catch(e) { taskController = null; }
-try { financeController = require('../controllers/financeController'); } catch(e) { financeController = null; }
-try { dashboardController = require('../controllers/dashboardController'); } catch(e) { dashboardController = null; }
-try { pipelineController = require('../controllers/pipelineController'); } catch(e) { pipelineController = null; }
-try { clientFieldController = require('../controllers/clientFieldController'); } catch(e) { clientFieldController = null; }
-try { telephonyController = require('../controllers/telephonyController'); } catch(e) { telephonyController = null; }
-try { fileController = require('../controllers/fileController'); } catch(e) { fileController = null; }
-try { exportController = require('../controllers/exportController'); } catch(e) { exportController = null; }
-try { searchController = require('../controllers/searchController'); } catch(e) { searchController = null; }
-try { webhookController = require('../controllers/webhookController'); } catch(e) { webhookController = null; }
-try { documentController = require('../controllers/documentController'); } catch(e) { documentController = null; }
-try { metricsController = require('../controllers/metricsController'); } catch(e) { metricsController = null; }
-try { twoFactorController = require('../controllers/twoFactorController'); } catch(e) { twoFactorController = null; }
 
 // Мидлвары
 const { auth, requireRole } = require('../middleware/auth');
@@ -70,144 +51,100 @@ router.put('/users/password', auth, async (req, res) => {
   res.json({ message: 'Пароль изменён' });
 });
 
-// ==================== CLIENTS (с заглушками) ====================
-const clientHandler = (method) => clientController && clientController[method] 
-  ? clientController[method] 
-  : (req, res) => res.status(501).json({ message: 'Endpoint временно недоступен' });
+// ==================== CLIENTS (временные заглушки) ====================
+router.get('/clients', auth, (req, res) => res.json({ message: 'Clients endpoint - временно недоступен' }));
+router.get('/clients/:id', auth, (req, res) => res.json({ message: 'Client detail - временно недоступен' }));
+router.post('/clients', auth, requireRole('admin', 'manager'), (req, res) => res.json({ message: 'Create client - временно недоступен' }));
+router.put('/clients/:id', auth, requireRole('admin', 'manager'), (req, res) => res.json({ message: 'Update client - временно недоступен' }));
+router.delete('/clients/:id', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Delete client - временно недоступен' }));
+router.patch('/clients/:id/pipeline-stage', auth, (req, res) => res.json({ message: 'Update pipeline stage - временно недоступен' }));
+router.post('/clients/:id/interactions', auth, (req, res) => res.json({ message: 'Add interaction - временно недоступен' }));
+router.post('/clients/distribute', auth, requireRole('admin', 'head_of_sales'), (req, res) => res.json({ message: 'Distribute clients - временно недоступен' }));
 
-router.get('/clients', auth, clientHandler('getAll'));
-router.get('/clients/:id', auth, clientHandler('getOne'));
-router.post('/clients', auth, requireRole('admin', 'manager'), clientHandler('create'));
-router.put('/clients/:id', auth, requireRole('admin', 'manager'), clientHandler('update'));
-router.delete('/clients/:id', auth, requireRole('admin', 'director'), clientHandler('delete'));
-router.patch('/clients/:id/pipeline-stage', auth, clientHandler('updatePipelineStage'));
-router.post('/clients/:id/interactions', auth, clientHandler('addInteraction'));
-router.post('/clients/distribute', auth, requireRole('admin', 'head_of_sales'), clientHandler('distribute'));
+// ==================== PROJECTS (временные заглушки) ====================
+router.get('/projects', auth, (req, res) => res.json({ message: 'Projects endpoint - временно недоступен' }));
+router.get('/projects/:id', auth, (req, res) => res.json({ message: 'Project detail - временно недоступен' }));
+router.post('/projects', auth, requireRole('admin', 'manager'), (req, res) => res.json({ message: 'Create project - временно недоступен' }));
+router.put('/projects/:id', auth, requireRole('admin', 'manager'), (req, res) => res.json({ message: 'Update project - временно недоступен' }));
+router.delete('/projects/:id', auth, requireRole('admin'), (req, res) => res.json({ message: 'Delete project - временно недоступен' }));
 
-// ==================== PROJECTS ====================
-const projectHandler = (method) => projectController && projectController[method] 
-  ? projectController[method] 
-  : (req, res) => res.status(501).json({ message: 'Endpoint временно недоступен' });
+// ==================== TASKS (временные заглушки) ====================
+router.get('/tasks', auth, (req, res) => res.json({ message: 'Tasks endpoint - временно недоступен' }));
+router.get('/tasks/:id', auth, (req, res) => res.json({ message: 'Task detail - временно недоступен' }));
+router.post('/tasks', auth, (req, res) => res.json({ message: 'Create task - временно недоступен' }));
+router.put('/tasks/:id', auth, (req, res) => res.json({ message: 'Update task - временно недоступен' }));
+router.delete('/tasks/:id', auth, (req, res) => res.json({ message: 'Delete task - временно недоступен' }));
+router.post('/tasks/:id/timer/start', auth, (req, res) => res.json({ message: 'Start timer - временно недоступен' }));
+router.post('/tasks/:id/timer/stop', auth, (req, res) => res.json({ message: 'Stop timer - временно недоступен' }));
+router.post('/tasks/:id/time', auth, (req, res) => res.json({ message: 'Add manual time - временно недоступен' }));
 
-router.get('/projects', auth, projectHandler('getAll'));
-router.get('/projects/:id', auth, projectHandler('getOne'));
-router.post('/projects', auth, requireRole('admin', 'manager'), projectHandler('create'));
-router.put('/projects/:id', auth, requireRole('admin', 'manager'), projectHandler('update'));
-router.delete('/projects/:id', auth, requireRole('admin'), projectHandler('delete'));
+// ==================== FINANCE (временные заглушки) ====================
+router.get('/invoices', auth, (req, res) => res.json({ message: 'Invoices endpoint - временно недоступен' }));
+router.post('/invoices', auth, requireRole('admin', 'manager'), (req, res) => res.json({ message: 'Create invoice - временно недоступен' }));
+router.put('/invoices/:id', auth, requireRole('admin', 'manager'), (req, res) => res.json({ message: 'Update invoice - временно недоступен' }));
+router.post('/invoices/:id/payment', auth, (req, res) => res.json({ message: 'Add payment - временно недоступен' }));
+router.get('/expenses', auth, (req, res) => res.json({ message: 'Expenses endpoint - временно недоступен' }));
+router.post('/expenses', auth, requireRole('admin', 'manager'), (req, res) => res.json({ message: 'Create expense - временно недоступен' }));
+router.get('/reports/finance', auth, requireRole('admin', 'manager'), (req, res) => res.json({ message: 'Finance report - временно недоступен' }));
 
-// ==================== TASKS ====================
-const taskHandler = (method) => taskController && taskController[method] 
-  ? taskController[method] 
-  : (req, res) => res.status(501).json({ message: 'Endpoint временно недоступен' });
-
-router.get('/tasks', auth, taskHandler('getAll'));
-router.get('/tasks/:id', auth, taskHandler('getOne'));
-router.post('/tasks', auth, taskHandler('create'));
-router.put('/tasks/:id', auth, taskHandler('update'));
-router.delete('/tasks/:id', auth, taskHandler('delete'));
-router.post('/tasks/:id/timer/start', auth, taskHandler('startTimer'));
-router.post('/tasks/:id/timer/stop', auth, taskHandler('stopTimer'));
-router.post('/tasks/:id/time', auth, taskHandler('addManualTime'));
-
-// ==================== FINANCE ====================
-const financeHandler = (method) => financeController && financeController[method] 
-  ? financeController[method] 
-  : (req, res) => res.status(501).json({ message: 'Endpoint временно недоступен' });
-
-router.get('/invoices', auth, financeHandler('getInvoices'));
-router.post('/invoices', auth, requireRole('admin', 'manager'), financeHandler('createInvoice'));
-router.put('/invoices/:id', auth, requireRole('admin', 'manager'), financeHandler('updateInvoice'));
-router.post('/invoices/:id/payment', auth, financeHandler('addPayment'));
-router.get('/expenses', auth, financeHandler('getExpenses'));
-router.post('/expenses', auth, requireRole('admin', 'manager'), financeHandler('createExpense'));
-router.get('/reports/finance', auth, requireRole('admin', 'manager'), financeHandler('getFinanceReport'));
-
-// ==================== PIPELINES ====================
-const pipelineHandler = (method) => pipelineController && pipelineController[method] 
-  ? pipelineController[method] 
-  : (req, res) => res.status(501).json({ message: 'Endpoint временно недоступен' });
-
-router.get('/pipelines', auth, pipelineHandler('getAll'));
-router.get('/pipelines/:id', auth, pipelineHandler('getOne'));
-router.post('/pipelines', auth, requireRole('admin', 'director'), pipelineHandler('create'));
-router.put('/pipelines/:id', auth, requireRole('admin', 'director'), pipelineHandler('update'));
-router.delete('/pipelines/:id', auth, requireRole('admin', 'director'), pipelineHandler('delete'));
-router.get('/pipelines/:id/stages', auth, pipelineHandler('getStages'));
-router.post('/pipelines/:id/stages', auth, requireRole('admin', 'director'), pipelineHandler('addStage'));
-router.put('/pipelines/:id/stages/reorder', auth, requireRole('admin', 'director'), pipelineHandler('reorderStages'));
-router.put('/pipelines/:pid/stages/:sid', auth, requireRole('admin', 'director'), pipelineHandler('updateStage'));
-router.delete('/pipelines/:pid/stages/:sid', auth, requireRole('admin', 'director'), pipelineHandler('deleteStage'));
+// ==================== PIPELINES (временные заглушки) ====================
+router.get('/pipelines', auth, (req, res) => res.json({ message: 'Pipelines endpoint - временно недоступен' }));
+router.get('/pipelines/:id', auth, (req, res) => res.json({ message: 'Pipeline detail - временно недоступен' }));
+router.post('/pipelines', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Create pipeline - временно недоступен' }));
+router.put('/pipelines/:id', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Update pipeline - временно недоступен' }));
+router.delete('/pipelines/:id', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Delete pipeline - временно недоступен' }));
+router.get('/pipelines/:id/stages', auth, (req, res) => res.json({ message: 'Pipeline stages - временно недоступен' }));
+router.post('/pipelines/:id/stages', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Add stage - временно недоступен' }));
+router.put('/pipelines/:id/stages/reorder', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Reorder stages - временно недоступен' }));
+router.put('/pipelines/:pid/stages/:sid', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Update stage - временно недоступен' }));
+router.delete('/pipelines/:pid/stages/:sid', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Delete stage - временно недоступен' }));
 
 // ==================== DASHBOARD ====================
-router.get('/dashboard/stats', auth, dashboardController ? dashboardController.getStats : (req, res) => res.status(501).json({ message: 'Dashboard временно недоступен' }));
+router.get('/dashboard/stats', auth, (req, res) => res.json({ message: 'Dashboard stats - временно недоступен' }));
 
 // ==================== CLIENT FIELDS ====================
-const clientFieldHandler = (method) => clientFieldController && clientFieldController[method] 
-  ? clientFieldController[method] 
-  : (req, res) => res.status(501).json({ message: 'Endpoint временно недоступен' });
-
-router.get('/client-fields', auth, clientFieldHandler('getAll'));
-router.post('/client-fields', auth, requireRole('admin', 'director'), clientFieldHandler('create'));
-router.put('/client-fields/:id', auth, requireRole('admin', 'director'), clientFieldHandler('update'));
-router.delete('/client-fields/:id', auth, requireRole('admin', 'director'), clientFieldHandler('delete'));
+router.get('/client-fields', auth, (req, res) => res.json({ message: 'Client fields - временно недоступен' }));
+router.post('/client-fields', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Create client field - временно недоступен' }));
+router.put('/client-fields/:id', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Update client field - временно недоступен' }));
+router.delete('/client-fields/:id', auth, requireRole('admin', 'director'), (req, res) => res.json({ message: 'Delete client field - временно недоступен' }));
 
 // ==================== TELEPHONY ====================
-router.post('/calls/initiate', auth, telephonyController ? telephonyController.initiateCall : (req, res) => res.status(501).json({ message: 'Telephony временно недоступна' }));
-router.post('/calls/webhook', telephonyController ? telephonyController.webhook : (req, res) => res.status(501).json({ message: 'Telephony webhook временно недоступен' }));
+router.post('/calls/initiate', auth, (req, res) => res.json({ message: 'Initiate call - временно недоступен' }));
+router.post('/calls/webhook', (req, res) => res.json({ message: 'Call webhook - временно недоступен' }));
 
 // ==================== FILES ====================
-router.post('/files/:entity/:entityId', auth, upload.array('files', 10), fileController ? fileController.upload : (req, res) => res.status(501).json({ message: 'File upload временно недоступен' }));
-router.delete('/files/:entity/:filename', auth, fileController ? fileController.delete : (req, res) => res.status(501).json({ message: 'File delete временно недоступен' }));
+router.post('/files/:entity/:entityId', auth, upload.array('files', 10), (req, res) => res.json({ message: 'Upload files - временно недоступен' }));
+router.delete('/files/:entity/:filename', auth, (req, res) => res.json({ message: 'Delete file - временно недоступен' }));
 
 // ==================== EXPORT ====================
-const exportHandler = (method) => exportController && exportController[method] 
-  ? exportController[method] 
-  : (req, res) => res.status(501).json({ message: 'Export временно недоступен' });
-
-router.get('/export/clients', auth, requireRole('admin', 'manager'), exportHandler('exportClients'));
-router.get('/export/invoices/:id/pdf', auth, exportHandler('exportInvoicePDF'));
-router.get('/export/reports/pdf', auth, exportHandler('exportReportPDF'));
-router.get('/export/reports/excel', auth, exportHandler('exportReportExcel'));
+router.get('/export/clients', auth, requireRole('admin', 'manager'), (req, res) => res.json({ message: 'Export clients - временно недоступен' }));
+router.get('/export/invoices/:id/pdf', auth, (req, res) => res.json({ message: 'Export invoice PDF - временно недоступен' }));
+router.get('/export/reports/pdf', auth, (req, res) => res.json({ message: 'Export report PDF - временно недоступен' }));
+router.get('/export/reports/excel', auth, (req, res) => res.json({ message: 'Export report Excel - временно недоступен' }));
 
 // ==================== SEARCH ====================
-router.get('/search', auth, searchController ? searchController.globalSearch : (req, res) => res.status(501).json({ message: 'Search временно недоступен' }));
+router.get('/search', auth, (req, res) => res.json({ message: 'Global search - временно недоступен' }));
 
 // ==================== WEBHOOKS ====================
-const webhookHandler = (method) => webhookController && webhookController[method] 
-  ? webhookController[method] 
-  : (req, res) => res.status(501).json({ message: 'Webhooks временно недоступны' });
-
-router.get('/webhooks', auth, webhookHandler('getAll'));
-router.post('/webhooks', auth, webhookHandler('create'));
-router.put('/webhooks/:id', auth, webhookHandler('update'));
-router.delete('/webhooks/:id', auth, webhookHandler('delete'));
+router.get('/webhooks', auth, (req, res) => res.json({ message: 'Webhooks - временно недоступен' }));
+router.post('/webhooks', auth, (req, res) => res.json({ message: 'Create webhook - временно недоступен' }));
+router.put('/webhooks/:id', auth, (req, res) => res.json({ message: 'Update webhook - временно недоступен' }));
+router.delete('/webhooks/:id', auth, (req, res) => res.json({ message: 'Delete webhook - временно недоступен' }));
 
 // ==================== DOCUMENTS ====================
-const documentHandler = (method) => documentController && documentController[method] 
-  ? documentController[method] 
-  : (req, res) => res.status(501).json({ message: 'Documents временно недоступны' });
-
-router.get('/documents/templates', auth, documentHandler('getTemplates'));
-router.post('/documents/generate', auth, documentHandler('generateDocument'));
-router.get('/documents/:id', auth, documentHandler('getDocument'));
-router.delete('/documents/:id', auth, documentHandler('deleteDocument'));
+router.get('/documents/templates', auth, (req, res) => res.json({ message: 'Document templates - временно недоступен' }));
+router.post('/documents/generate', auth, (req, res) => res.json({ message: 'Generate document - временно недоступен' }));
+router.get('/documents/:id', auth, (req, res) => res.json({ message: 'Get document - временно недоступен' }));
+router.delete('/documents/:id', auth, (req, res) => res.json({ message: 'Delete document - временно недоступен' }));
 
 // ==================== METRICS ====================
-const metricsHandler = (method) => metricsController && metricsController[method] 
-  ? metricsController[method] 
-  : (req, res) => res.status(501).json({ message: 'Metrics временно недоступны' });
-
-router.get('/metrics/ltv', auth, metricsHandler('getLTV'));
-router.get('/metrics/cac', auth, metricsHandler('getCAC'));
-router.get('/metrics/romi', auth, metricsHandler('getROMI'));
+router.get('/metrics/ltv', auth, (req, res) => res.json({ message: 'LTV metric - временно недоступен' }));
+router.get('/metrics/cac', auth, (req, res) => res.json({ message: 'CAC metric - временно недоступен' }));
+router.get('/metrics/romi', auth, (req, res) => res.json({ message: 'ROMI metric - временно недоступен' }));
 
 // ==================== 2FA ====================
-const twoFactorHandler = (method) => twoFactorController && twoFactorController[method] 
-  ? twoFactorController[method] 
-  : (req, res) => res.status(501).json({ message: '2FA временно недоступна' });
-
-router.post('/2fa/setup', auth, twoFactorHandler('setup'));
-router.post('/2fa/verify', auth, twoFactorHandler('verify'));
-router.post('/2fa/disable', auth, twoFactorHandler('disable'));
+router.post('/2fa/setup', auth, (req, res) => res.json({ message: '2FA setup - временно недоступен' }));
+router.post('/2fa/verify', auth, (req, res) => res.json({ message: '2FA verify - временно недоступен' }));
+router.post('/2fa/disable', auth, (req, res) => res.json({ message: '2FA disable - временно недоступен' }));
 
 module.exports = router;
