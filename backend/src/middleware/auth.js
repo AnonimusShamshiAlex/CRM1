@@ -1,34 +1,44 @@
-// middleware/auth.js — JWT верификация
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 
 const auth = async (req, res, next) => {
   try {
+    let token;
     const header = req.headers.authorization;
-    if (!header?.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Токен не предоставлен' });
+    if (header && header.startsWith('Bearer ')) {
+      token = header.split(' ')[1];
+    } else if (req.query.token) {
+      token = req.query.token;
     }
 
-    const token = header.split(' ')[1];
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    if (!token) {
+      return res.status(401).json({ error: 'Токен не предоставлен' });
+    }
 
-    const user = await User.findByPk(payload.userId, {
-      attributes: { exclude: ['password', 'twoFactorSecret'] },
-    });
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    if (!user) return res.status(401).json({ message: 'Пользователь не найден' });
-    if (user.status !== 'active') {
-      return res.status(403).json({ message: 'Учётная запись деактивирована' });
+    const user = await User.findByPk(decoded.id);
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: 'Пользователь не найден или деактивирован' });
     }
 
     req.user = user;
     next();
-  } catch (e) {
-    if (e.name === 'TokenExpiredError') {
-      return res.status(401).json({ message: 'Сессия истекла. Войдите снова.' });
-    }
-    return res.status(401).json({ message: 'Недействительный токен' });
+  } catch (err) {
+    return res.status(401).json({ error: 'Недействительный токен' });
   }
 };
 
-module.exports = { auth };
+const requireRole = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Не авторизован' });
+    }
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Недостаточно прав' });
+    }
+    next();
+  };
+};
+
+module.exports = { auth, requireRole };
