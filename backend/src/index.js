@@ -1,6 +1,6 @@
 // models/index.js — Все модели и связи между ними
 const { Sequelize } = require('sequelize');
-const sequelize = require('../config/database');
+const sequelize = require('./config/database');
 
 // Импорт моделей
 const User                 = require('./User')(sequelize);
