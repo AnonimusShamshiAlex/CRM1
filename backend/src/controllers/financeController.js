@@ -1,222 +1,139 @@
+// controllers/financeController.js
 const { Op, fn, col, literal } = require('sequelize');
-const { Invoice, Expense, Client, Project, sequelize } = require('../models');
-const { sanitizeData } = require('../utils/sanitizer');
+const { Invoice, Expense, Client, Project, User } = require('../models');
+const { triggerWebhooks } = require('./webhookController');
 
-// СЧЕТА
+// ── INVOICES ──────────────────────────────────────────
+
 const getInvoices = async (req, res) => {
-  try {
-    const { status, clientId, projectId } = req.query;
-    const where = {};
+  const { page = 1, limit = 20, status, clientId, projectId } = req.query;
+  const where = {};
+  if (status)    where.status    = status;
+  if (clientId)  where.clientId  = clientId;
+  if (projectId) where.projectId = projectId;
 
-    if (status) where.status = status;
-    if (clientId) where.clientId = clientId;
-    if (projectId) where.projectId = projectId;
-
-    const invoices = await Invoice.findAll({
-      where,
-      include: [
-        { model: Client, as: 'client', attributes: ['id', 'name', 'companyName'] },
-        { model: Project, as: 'project', attributes: ['id', 'name'] },
-      ],
-      order: [['createdAt', 'DESC']],
-    });
-
-    res.json(invoices);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const { count, rows } = await Invoice.findAndCountAll({
+    where,
+    include: [
+      { model: Client,  as: 'client',  attributes: ['id','name'] },
+      { model: Project, as: 'project', attributes: ['id','name'] },
+    ],
+    order: [['createdAt','DESC']],
+    limit: Number(limit),
+    offset: (Number(page)-1)*Number(limit),
+  });
+  res.json({ invoices: rows, total: count });
 };
 
 const createInvoice = async (req, res) => {
-  try {
-    // Генерация номера счёта
-    const count = await Invoice.count();
-    const number = `INV-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+  const { items = [], amount } = req.body;
+  const vat = req.body.vat ?? 12;
+  const base = Number(amount) || items.reduce((s,i) => s + Number(i.price||0)*Number(i.qty||1), 0);
+  const total = base * (1 + vat/100);
 
-    const data = sanitizeData(req.body);
-    const invoice = await Invoice.create({ ...data, number });
-    res.status(201).json(invoice);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const num = `INV-${Date.now().toString().slice(-6)}`;
+  const invoice = await Invoice.create({
+    ...req.body,
+    number: req.body.number || num,
+    amount: base,
+    vat,
+    total,
+    createdBy: req.user.id,
+  });
+  res.status(201).json(invoice);
 };
 
 const updateInvoice = async (req, res) => {
-  try {
-    const invoice = await Invoice.findByPk(req.params.id);
-    if (!invoice) return res.status(404).json({ error: 'Счёт не найден' });
+  const invoice = await Invoice.findByPk(req.params.id);
+  if (!invoice) return res.status(404).json({ message: 'Счёт не найден' });
 
-    const data = sanitizeData(req.body);
-    await invoice.update(data);
+  const wasPaid = invoice.status === 'paid';
+  await invoice.update(req.body);
 
-    // Авто-статус при полной оплате
-    if (invoice.paidAmount >= invoice.total) {
-      await invoice.update({ status: 'paid', paidAt: new Date() });
-    } else if (invoice.paidAmount > 0) {
-      await invoice.update({ status: 'partial' });
-    }
-
-    res.json(invoice);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-};
-
-const recordPayment = async (req, res) => {
-  try {
-    const { amount, comment } = req.body;
-    const invoice = await Invoice.findByPk(req.params.id);
-    if (!invoice) return res.status(404).json({ error: 'Счёт не найден' });
-
-    const total = parseFloat(invoice.total);
-    const currentPaid = parseFloat(invoice.paidAmount || 0);
-    const newPaid = currentPaid + parseFloat(amount);
-    
-    // Статус оплаты: если оплачено >= сумма счёта → "paid"
-    const newStatus = newPaid >= total - 0.01 ? 'paid' : 'partial';
-
-    await invoice.update({
-      paidAmount: newPaid,
-      status: newStatus,
-      paidAt: newStatus === 'paid' ? new Date() : invoice.paidAt,
+  // Webhook при оплате
+  if (!wasPaid && req.body.status === 'paid') {
+    await invoice.update({ paidAt: new Date() });
+    await triggerWebhooks('invoice.paid', {
+      id: invoice.id, number: invoice.number, amount: invoice.total,
     });
-
-    res.json(invoice);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
   }
+  res.json(invoice);
 };
 
-// РАСХОДЫ
+const deleteInvoice = async (req, res) => {
+  const invoice = await Invoice.findByPk(req.params.id);
+  if (!invoice) return res.status(404).json({ message: 'Счёт не найден' });
+  await invoice.destroy();
+  res.json({ message: 'Счёт удалён' });
+};
+
+// ── EXPENSES ──────────────────────────────────────────
+
 const getExpenses = async (req, res) => {
-  try {
-    const { category, projectId, dateFrom, dateTo } = req.query;
-    const where = {};
+  const { page=1, limit=20, category, projectId } = req.query;
+  const where = {};
+  if (category)  where.category  = category;
+  if (projectId) where.projectId = projectId;
 
-    if (category) where.category = category;
-    if (projectId) where.projectId = projectId;
-    if (dateFrom || dateTo) {
-      where.date = {};
-      if (dateFrom) where.date[Op.gte] = dateFrom;
-      if (dateTo) where.date[Op.lte] = dateTo;
-    }
-
-    const expenses = await Expense.findAll({
-      where,
-      include: [
-        { model: Project, as: 'project', attributes: ['id', 'name'] },
-      ],
-      order: [['date', 'DESC']],
-    });
-
-    res.json(expenses);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const { count, rows } = await Expense.findAndCountAll({
+    where,
+    include: [{ model: Project, as: 'project', attributes: ['id','name'] }],
+    order: [['date','DESC']],
+    limit: Number(limit),
+    offset: (Number(page)-1)*Number(limit),
+  });
+  res.json({ expenses: rows, total: count });
 };
 
 const createExpense = async (req, res) => {
-  try {
-    const data = sanitizeData(req.body);
-    const expense = await Expense.create(data);
-    res.status(201).json(expense);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const expense = await Expense.create({ ...req.body, createdBy: req.user.id });
+  res.status(201).json(expense);
 };
 
-// ОТЧЁТЫ
+const updateExpense = async (req, res) => {
+  const expense = await Expense.findByPk(req.params.id);
+  if (!expense) return res.status(404).json({ message: 'Расход не найден' });
+  await expense.update(req.body);
+  res.json(expense);
+};
+
+const deleteExpense = async (req, res) => {
+  const expense = await Expense.findByPk(req.params.id);
+  if (!expense) return res.status(404).json({ message: 'Расход не найден' });
+  await expense.destroy();
+  res.json({ message: 'Расход удалён' });
+};
+
+// ── FINANCIAL REPORT ─────────────────────────────────
+
 const getReport = async (req, res) => {
-  try {
-    const { period, year, month } = req.query;
-    let dateFrom, dateTo;
-    const now = new Date();
-
-    if (period === 'month') {
-      const m = parseInt(month) || now.getMonth() + 1;
-      const y = parseInt(year) || now.getFullYear();
-      dateFrom = new Date(y, m - 1, 1);
-      dateTo = new Date(y, m, 0);
-    } else if (period === 'quarter') {
-      const q = Math.floor(now.getMonth() / 3);
-      dateFrom = new Date(now.getFullYear(), q * 3, 1);
-      dateTo = new Date(now.getFullYear(), q * 3 + 3, 0);
-    } else {
-      const y = parseInt(year) || now.getFullYear();
-      dateFrom = new Date(y, 0, 1);
-      dateTo = new Date(y, 11, 31);
-    }
-
-    const fromStr = dateFrom.toISOString().split('T')[0];
-    const toStr = dateTo.toISOString().split('T')[0];
-
-    // Выручка (оплаченные счета)
-    const revenueResult = await Invoice.findAll({
-      where: {
-        status: { [Op.in]: ['paid', 'partial'] },
-        paidAt: { [Op.between]: [fromStr, toStr] },
-      },
-      attributes: [
-        [fn('SUM', col('paid_amount')), 'total'],
-      ],
-      raw: true,
-    });
-
-    // Расходы по категориям
-    const expensesByCategory = await Expense.findAll({
-      where: { date: { [Op.between]: [fromStr, toStr] } },
-      attributes: [
-        'category',
-        [fn('SUM', col('amount')), 'total'],
-      ],
-      group: ['category'],
-      raw: true,
-    });
-
-    // Дебиторка
-    const receivables = await Invoice.findAll({
-      where: {
-        status: { [Op.in]: ['sent', 'partial', 'overdue'] },
-      },
-      include: [
-        { model: Client, as: 'client', attributes: ['id', 'name'] },
-      ],
-      attributes: ['id', 'number', 'total', 'paidAmount', 'dueDate', 'status'],
-    });
-
-    const revenue = parseFloat(revenueResult[0]?.total || 0);
-    const totalExpenses = expensesByCategory.reduce(
-      (sum, e) => sum + parseFloat(e.total), 0
-    );
-
-    res.json({
-      period: { from: fromStr, to: toStr },
-      revenue,
-      expenses: {
-        total: totalExpenses,
-        byCategory: expensesByCategory,
-      },
-      profit: revenue - totalExpenses,
-      receivables,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+  const { dateFrom, dateTo } = req.query;
+  const where = {};
+  if (dateFrom || dateTo) {
+    where.createdAt = {};
+    if (dateFrom) where.createdAt[Op.gte] = new Date(dateFrom);
+    if (dateTo)   where.createdAt[Op.lte] = new Date(dateTo);
   }
+
+  const [revenue, expenses, pending] = await Promise.all([
+    Invoice.sum('total',  { where: { ...where, status: 'paid' } }),
+    Expense.sum('amount', { where }),
+    Invoice.sum('total',  { where: { ...where, status: ['draft','sent'] } }),
+  ]);
+
+  const profit = (revenue||0) - (expenses||0);
+
+  res.json({
+    revenue:  revenue  || 0,
+    expenses: expenses || 0,
+    profit,
+    pending:  pending  || 0,
+    margin: revenue ? Math.round((profit/(revenue||1))*100) : 0,
+  });
 };
 
 module.exports = {
-  getInvoices,
-  createInvoice,
-  updateInvoice,
-  recordPayment,
-  getExpenses,
-  createExpense,
+  getInvoices, createInvoice, updateInvoice, deleteInvoice,
+  getExpenses, createExpense, updateExpense, deleteExpense,
   getReport,
 };

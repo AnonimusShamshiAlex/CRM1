@@ -1,219 +1,271 @@
+// controllers/authController.js
+// Регистрация, логин, одобрение — с поддержкой 2FA
+
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { validationResult } = require('express-validator');
 const { User, Notification } = require('../models');
+const { emailService } = require('../services/emailService');
 
-const generateToken = (user) => {
-  return jwt.sign(
-    { id: user.id, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
-  );
-};
-
-// POST /api/auth/register
+/**
+ * Регистрация
+ * POST /api/auth/register
+ */
 const register = async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+  const { name, email, password } = req.body;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: 'Заполните все поля' });
   }
 
-  const { name, email, password, position } = req.body;
+  // Валидация email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ message: 'Неверный формат email' });
+  }
 
-  try {
-    const existing = await User.findOne({ where: { email } });
-    if (existing) {
-      return res.status(400).json({ error: 'Email уже используется' });
-    }
+  if (password.length < 6) {
+    return res.status(400).json({ message: 'Пароль минимум 6 символов' });
+  }
 
-    const userCount = await User.count();
-    const isFirstUser = userCount === 0;
+  const existing = await User.findOne({ where: { email } });
+  if (existing) {
+    return res.status(409).json({ message: 'Пользователь с таким email уже существует' });
+  }
 
-    const hash = await bcrypt.hash(password, 12);
+  const totalUsers = await User.count();
+  const isFirst = totalUsers === 0;
 
-    if (isFirstUser) {
-      // Первый пользователь — суперадмин, сразу активен
-      const user = await User.create({
-        name,
-        email,
-        password: hash,
-        role: 'admin',
-        isSuperAdmin: true,
-        isActive: true,
-        position,
-      });
+  const hashed = await bcrypt.hash(password, 12);
 
-      const token = generateToken(user);
-      return res.status(201).json({
-        token,
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          position: user.position,
-          isSuperAdmin: user.isSuperAdmin,
-        },
-      });
-    }
+  const user = await User.create({
+    name,
+    email,
+    password: hashed,
+    role: isFirst ? 'superadmin' : 'manager',
+    status: isFirst ? 'active' : 'pending',
+    isSuperAdmin: isFirst,
+  });
 
-    // Остальные — создаём с isActive: false, ждут одобрения
-    const user = await User.create({
-      name,
-      email,
-      password: hash,
-      role: 'executor',
-      isActive: false,
-      position,
-    });
-
-    // Уведомляем всех админов (безопасная версия)
-    const admins = await User.findAll({
-      where: { role: 'admin', isActive: true },
-    });
-
+  if (!isFirst) {
+    // Уведомляем всех админов
+    const admins = await User.findAll({ where: { role: ['admin', 'superadmin'], status: 'active' } });
     for (const admin of admins) {
-      try {
-        await Notification.create({
-          userId: admin.id,
-          type: 'new_user_pending',
-          title: 'Новый пользователь ожидает одобрения',
-          message: `${name} (${email}) зарегистрировался и ожидает активации`,
-          link: '/team',
-          payload: { userId: user.id, userName: name, userEmail: email },
-        });
-      } catch (notifErr) {
-        console.error('Ошибка создания уведомления в БД:', notifErr.message);
-      }
-
-      // WebSocket уведомление — только если всё инициализировано
-      try {
-        const io = req.app.get('io');
-        const connectedUsers = req.app.get('connectedUsers');
-        if (io && connectedUsers && typeof connectedUsers.get === 'function') {
-          const adminSocketId = connectedUsers.get(admin.id);
-          if (adminSocketId) {
-            io.to(adminSocketId).emit('notification', {
-              type: 'new_user_pending',
-              title: 'Новый пользователь ожидает одобрения',
-              message: `${name} (${email}) зарегистрировался`,
-            });
-          }
-        }
-      } catch (wsErr) {
-        console.error('WebSocket уведомление не отправлено:', wsErr.message);
-      }
+      await Notification.create({
+        userId: admin.id,
+        title: 'Новая заявка на регистрацию',
+        body: `${name} (${email}) ожидает одобрения`,
+        type: 'registration',
+        link: '/team',
+      });
     }
-
-    return res.status(201).json({
-      pending: true,
-      message: 'Регистрация отправлена. Ожидайте одобрения администратора.',
-    });
-
-  } catch (err) {
-    console.error('Registration error:', err);
-    res.status(500).json({ error: 'Ошибка сервера при регистрации' });
   }
+
+  if (isFirst) {
+    const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    return res.status(201).json({
+      token,
+      user: { id: user.id, name: user.name, email: user.email, role: user.role, status: user.status },
+      isSuperAdmin: true,
+    });
+  }
+
+  res.status(201).json({
+    status: 'pending',
+    message: 'Заявка отправлена. Дождитесь одобрения администратора.',
+  });
 };
 
-// POST /api/auth/login
+/**
+ * Вход
+ * POST /api/auth/login
+ */
 const login = async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
   const { email, password } = req.body;
 
-  try {
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(400).json({ error: 'Неверный email или пароль' });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ error: 'Неверный email или пароль' });
-    }
-
-    // Проверяем статус ПОСЛЕ проверки пароля
-    if (!user.isActive) {
-      return res.status(403).json({
-        error: 'Аккаунт ожидает одобрения администратора',
-        pending: true,
-      });
-    }
-
-    const token = generateToken(user);
-
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        position: user.position,
-        avatar: user.avatar,
-        isSuperAdmin: user.isSuperAdmin,
-      },
-    });
-  } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ error: 'Ошибка сервера при входе' });
+  if (!email || !password) {
+    return res.status(400).json({ message: 'Введите email и пароль' });
   }
+
+  const user = await User.findOne({ where: { email } });
+  if (!user) {
+    return res.status(401).json({ message: 'Неверный email или пароль' });
+  }
+
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid) {
+    return res.status(401).json({ message: 'Неверный email или пароль' });
+  }
+
+  if (user.status === 'pending') {
+    return res.status(403).json({
+      status: 'pending',
+      message: 'Ваша учётная запись ожидает одобрения администратором',
+    });
+  }
+
+  if (user.status !== 'active') {
+    return res.status(403).json({ message: 'Учётная запись деактивирована' });
+  }
+
+  // ТЗ: Если 2FA включена — выдаём временный токен, требуем код
+  if (user.twoFactorEnabled) {
+    const tempToken = jwt.sign(
+      { userId: user.id, type: '2fa_pending' },
+      process.env.JWT_SECRET,
+      { expiresIn: '5m' } // 5 минут на ввод кода
+    );
+
+    return res.json({
+      requires2FA: true,
+      tempToken,
+      message: 'Введите код из приложения-аутентификатора',
+    });
+  }
+
+  // Обычный логин без 2FA
+  const token = jwt.sign(
+    { userId: user.id, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+
+  res.json({
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      position: user.position,
+      status: user.status,
+      twoFactorEnabled: user.twoFactorEnabled,
+      isSuperAdmin: user.isSuperAdmin,
+    },
+  });
 };
 
-// GET /api/auth/me
-const me = async (req, res) => {
-  try {
-    res.json({
-      id: req.user.id,
-      name: req.user.name,
-      email: req.user.email,
-      role: req.user.role,
-      position: req.user.position,
-      avatar: req.user.avatar,
-      phone: req.user.phone,
-      isSuperAdmin: req.user.isSuperAdmin,
-    });
-  } catch (err) {
-    console.error('Me error:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+/**
+ * Обновить профиль (имя, email, должность, телефон)
+ * PUT /api/users/profile
+ */
+const updateProfile = async (req, res) => {
+  const { name, email, position, phone } = req.body;
+  const user = await User.findByPk(req.user.id);
+  if (!user) return res.status(404).json({ message: 'Пользователь не найден' });
+
+  // Проверяем что email не занят другим
+  if (email && email !== user.email) {
+    const taken = await User.findOne({ where: { email } });
+    if (taken) return res.status(409).json({ message: 'Этот email уже используется' });
   }
+
+  await user.update({
+    name: name || user.name,
+    email: email || user.email,
+    position: position !== undefined ? position : user.position,
+    phone: phone !== undefined ? phone : user.phone,
+  });
+
+  res.json({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    position: user.position,
+    phone: user.phone,
+    twoFactorEnabled: user.twoFactorEnabled,
+  });
 };
 
-// POST /api/auth/change-password
+/**
+ * Смена пароля
+ * PUT /api/users/password
+ */
 const changePassword = async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-
   if (!currentPassword || !newPassword) {
-    return res.status(400).json({ error: 'Заполните все поля' });
+    return res.status(400).json({ message: 'Заполните все поля' });
   }
-
   if (newPassword.length < 6) {
-    return res.status(400).json({ error: 'Новый пароль должен быть не менее 6 символов' });
+    return res.status(400).json({ message: 'Новый пароль минимум 6 символов' });
   }
 
-  try {
-    const user = await User.findByPk(req.user.id);
-    if (!user) {
-      return res.status(404).json({ error: 'Пользователь не найден' });
-    }
+  const user = await User.findByPk(req.user.id);
+  const valid = await bcrypt.compare(currentPassword, user.password);
+  if (!valid) return res.status(400).json({ message: 'Неверный текущий пароль' });
 
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ error: 'Неверный текущий пароль' });
-    }
+  const hashed = await bcrypt.hash(newPassword, 12);
+  await user.update({ password: hashed });
 
-    user.password = await bcrypt.hash(newPassword, 12);
-    await user.save();
-
-    res.json({ message: 'Пароль успешно изменён' });
-  } catch (err) {
-    console.error('Change password error:', err);
-    res.status(500).json({ error: 'Ошибка сервера при смене пароля' });
-  }
+  res.json({ message: 'Пароль успешно изменён' });
 };
 
-module.exports = { register, login, me, changePassword };
+/**
+ * Одобрить пользователя
+ * POST /api/users/:id/approve
+ */
+const approveUser = async (req, res) => {
+  const { role } = req.body;
+  const user = await User.findByPk(req.params.id);
+  if (!user) return res.status(404).json({ message: 'Пользователь не найден' });
+
+  // Только суперадмин может назначить роль admin
+  if (role === 'admin' && req.user.role !== 'superadmin') {
+    return res.status(403).json({ message: 'Только суперадмин может назначить роль admin' });
+  }
+
+  await user.update({ status: 'active', role: role || 'manager' });
+
+  await Notification.create({
+    userId: user.id,
+    title: 'Доступ одобрен',
+    body: 'Ваша учётная запись активирована. Добро пожаловать в CRM!',
+    type: 'system',
+  });
+
+  res.json({ message: 'Пользователь одобрен', user });
+};
+
+/**
+ * Пригласить пользователя (сразу active)
+ * POST /api/users/invite
+ */
+const inviteUser = async (req, res) => {
+  const { name, email, role } = req.body;
+  if (!name || !email || !role) {
+    return res.status(400).json({ message: 'Заполните имя, email и роль' });
+  }
+
+  const existing = await User.findOne({ where: { email } });
+  if (existing) return res.status(409).json({ message: 'Пользователь уже существует' });
+
+  const tempPassword = Math.random().toString(36).slice(-8);
+  const hashed = await bcrypt.hash(tempPassword, 12);
+
+  const user = await User.create({
+    name, email, role,
+    password: hashed,
+    status: 'active',
+  });
+
+  // Отправляем письмо с временным паролем
+  try {
+    await emailService.sendInvite(email, name, tempPassword);
+  } catch (e) {
+    console.error('Email send error:', e.message);
+  }
+
+  res.status(201).json({
+    message: `Пользователь приглашён. Временный пароль отправлен на ${email}`,
+    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+  });
+};
+
+module.exports = {
+  register,
+  login,
+  updateProfile,
+  changePassword,
+  approveUser,
+  inviteUser,
+};

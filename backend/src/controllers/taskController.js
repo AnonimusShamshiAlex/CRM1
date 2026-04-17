@@ -1,262 +1,152 @@
+// controllers/taskController.js
 const { Op } = require('sequelize');
-const { Task, User, Project, TimeLog, Notification } = require('../models');
-const { sendTaskAssigned, sendTaskStatusChanged } = require('../services/emailService');
-const { notifyTaskAssigned, notifyTaskStatusChanged } = require('../services/telegramBot');
-const { sanitizeData } = require('../utils/sanitizer');
+const { Task, User, Project, Client, TimeLog, Notification } = require('../models');
+const { triggerWebhooks } = require('./webhookController');
 
 const getTasks = async (req, res) => {
-  try {
-    const { projectId, assigneeId, status, priority } = req.query;
-    const where = { parentId: null };
+  const { page = 1, limit = 50, status, priority, assigneeId, projectId, deadline, search } = req.query;
+  const where = {};
 
-    if (projectId) where.projectId = projectId;
-    if (status) where.status = status;
-    if (priority) where.priority = priority;
+  if (status)     where.status     = status;
+  if (priority)   where.priority   = priority;
+  if (assigneeId) where.assigneeId = assigneeId;
+  if (projectId)  where.projectId  = projectId;
+  if (search)     where.title = { [Op.iLike]: `%${search}%` };
 
-    if (assigneeId) {
-      where.assigneeId = assigneeId;
-    } else if (req.user.role === 'executor') {
-      where.assigneeId = req.user.id;
-    }
-
-    const tasks = await Task.findAll({
-      where,
-      include: [
-        { model: User, as: 'assignee', attributes: ['id', 'name', 'avatar'] },
-        { model: User, as: 'createdBy', attributes: ['id', 'name'] },
-        { model: Project, as: 'project', attributes: ['id', 'name'] },
-        {
-          model: Task,
-          as: 'subtasks',
-          include: [
-            { model: User, as: 'assignee', attributes: ['id', 'name', 'avatar'] },
-          ],
-        },
-      ],
-      order: [
-        ['order', 'ASC'],
-        ['createdAt', 'DESC'],
-      ],
-    });
-
-    res.json(tasks);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+  // ТЗ: горящие задачи — дедлайн сегодня
+  if (deadline === 'today') {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    where.deadline = { [Op.between]: [today, tomorrow] };
+    where.status   = { [Op.ne]: 'done' };
   }
+
+  // ТЗ: Приватность задач — менеджер видит только свой проект
+  if (req.scopedProjectId) where.projectId = req.scopedProjectId;
+
+  const { count, rows } = await Task.findAndCountAll({
+    where,
+    include: [
+      { model: User,    as: 'assignee', attributes: ['id', 'name'] },
+      { model: Project, as: 'project',  attributes: ['id', 'name'] },
+      { model: Client,  as: 'client',   attributes: ['id', 'name'] },
+    ],
+    order: [['deadline', 'ASC NULLS LAST'], ['priority', 'DESC'], ['createdAt', 'DESC']],
+    limit: Number(limit),
+    offset: (Number(page) - 1) * Number(limit),
+  });
+
+  res.json({ tasks: rows, total: count });
 };
 
-const getTaskById = async (req, res) => {
-  try {
-    const task = await Task.findByPk(req.params.id, {
-      include: [
-        { model: User, as: 'assignee', attributes: ['id', 'name', 'avatar'] },
-        { model: User, as: 'createdBy', attributes: ['id', 'name'] },
-        { model: Project, as: 'project', attributes: ['id', 'name'] },
-        {
-          model: Task,
-          as: 'subtasks',
-          include: [{ model: User, as: 'assignee', attributes: ['id', 'name', 'avatar'] }],
-        },
-        {
-          model: TimeLog,
-          as: 'timeLogs',
-          include: [{ model: User, as: 'user', attributes: ['id', 'name'] }],
-        },
-      ],
-    });
-
-    if (!task) return res.status(404).json({ error: 'Задача не найдена' });
-    res.json(task);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+const getTask = async (req, res) => {
+  const task = await Task.findByPk(req.params.id, {
+    include: [
+      { model: User,    as: 'assignee', attributes: ['id', 'name', 'position'] },
+      { model: User,    as: 'creator',  attributes: ['id', 'name'] },
+      { model: Project, as: 'project',  attributes: ['id', 'name'] },
+      { model: Client,  as: 'client',   attributes: ['id', 'name'] },
+      { model: TimeLog, as: 'timeLogs',
+        include: [{ model: User, as: 'user', attributes: ['id', 'name'] }] },
+    ],
+  });
+  if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+  res.json(task);
 };
 
 const createTask = async (req, res) => {
-  try {
-    const data = sanitizeData(req.body);
-    const task = await Task.create({
-      ...data,
-      createdById: req.user.id,
+  const task = await Task.create({ ...req.body, createdBy: req.user.id });
+
+  // Уведомление исполнителю
+  if (task.assigneeId && task.assigneeId !== req.user.id) {
+    await Notification.create({
+      userId: task.assigneeId,
+      title:  'Новая задача',
+      body:   `Вам назначена задача: «${task.title}»`,
+      type:   'task',
+      link:   `/tasks/${task.id}`,
     });
-
-    // Уведомление исполнителю (in-app + email)
-    if (task.assigneeId && task.assigneeId !== req.user.id) {
-      const assignee = await User.findByPk(task.assigneeId);
-      await Notification.create({
-        userId: task.assigneeId,
-        type: 'task_assigned',
-        title: 'Новая задача',
-        message: `Вам назначена задача: ${task.title}`,
-        link: `/tasks/${task.id}`,
-        payload: { taskId: task.id },
-      });
-      if (assignee) sendTaskAssigned(assignee, task);
-      notifyTaskAssigned(task.assigneeId, task.title, req.user.name || 'Менеджер');
-    }
-
-    const full = await Task.findByPk(task.id, {
-      include: [
-        { model: User, as: 'assignee', attributes: ['id', 'name', 'avatar'] },
-        { model: Project, as: 'project', attributes: ['id', 'name'] },
-      ],
-    });
-
-    res.status(201).json(full);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
   }
+
+  await triggerWebhooks('task.created', { id: task.id, title: task.title });
+  res.status(201).json(task);
 };
 
 const updateTask = async (req, res) => {
-  try {
-    const task = await Task.findByPk(req.params.id);
-    if (!task) return res.status(404).json({ error: 'Задача не найдена' });
+  const task = await Task.findByPk(req.params.id);
+  if (!task) return res.status(404).json({ message: 'Задача не найдена' });
 
-    const oldStatus = task.status;
-    const oldAssigneeId = task.assigneeId;
+  const wasDone = task.status === 'done';
+  await task.update(req.body);
 
-    const data = sanitizeData(req.body);
-    await task.update(data);
-
-    // Уведомление при смене статуса (in-app + email)
-    if (req.body.status && req.body.status !== oldStatus && task.assigneeId) {
-      const assignee = await User.findByPk(task.assigneeId);
-      await Notification.create({
-        userId: task.assigneeId,
-        type: 'task_status_changed',
-        title: 'Статус задачи изменён',
-        message: `Задача "${task.title}" изменила статус`,
-        link: `/tasks/${task.id}`,
-        payload: { taskId: task.id, newStatus: req.body.status },
-      });
-      if (assignee) sendTaskStatusChanged(assignee, task, req.body.status);
-      notifyTaskStatusChanged(task.assigneeId, task.title, oldStatus, req.body.status);
-    }
-
-    // Уведомление при переназначении (in-app + email + telegram)
-    if (req.body.assigneeId && req.body.assigneeId !== oldAssigneeId) {
-      const newAssignee = await User.findByPk(req.body.assigneeId);
-      await Notification.create({
-        userId: req.body.assigneeId,
-        type: 'task_assigned',
-        title: 'Новая задача',
-        message: `Вам назначена задача: ${task.title}`,
-        link: `/tasks/${task.id}`,
-        payload: { taskId: task.id },
-      });
-      if (newAssignee) sendTaskAssigned(newAssignee, task);
-      notifyTaskAssigned(req.body.assigneeId, task.title, req.user.name || 'Менеджер');
-    }
-
-    res.json(task);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+  // Webhook при завершении
+  if (!wasDone && req.body.status === 'done') {
+    await triggerWebhooks('task.done', { id: task.id, title: task.title });
   }
+
+  res.json(task);
 };
 
 const deleteTask = async (req, res) => {
-  try {
-    const task = await Task.findByPk(req.params.id);
-    if (!task) return res.status(404).json({ error: 'Задача не найдена' });
-
-    await task.destroy();
-    res.json({ message: 'Задача удалена' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  const task = await Task.findByPk(req.params.id);
+  if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+  await task.destroy();
+  res.json({ message: 'Задача удалена' });
 };
 
-// Трекер времени
+// ТЗ: Time-tracking — старт таймера
 const startTimer = async (req, res) => {
-  try {
-    const task = await Task.findByPk(req.params.id);
-    if (!task) return res.status(404).json({ error: 'Задача не найдена' });
+  const task = await Task.findByPk(req.params.id);
+  if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+  if (task.timerStartedAt) return res.status(400).json({ message: 'Таймер уже запущен' });
 
-    if (task.timerStartedAt) {
-      return res.status(400).json({ error: 'Таймер уже запущен' });
-    }
+  await task.update({ timerStartedAt: new Date(), status: 'in_progress' });
 
-    await task.update({ 
-      timerStartedAt: new Date(),
-      status: 'in_progress'
-    });
-    res.json({ timerStartedAt: task.timerStartedAt });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  await TimeLog.create({
+    taskId:    task.id,
+    userId:    req.user.id,
+    startedAt: new Date(),
+  });
+
+  res.json({ message: 'Таймер запущен', startedAt: task.timerStartedAt });
 };
 
+// ТЗ: Time-tracking — стоп таймера
 const stopTimer = async (req, res) => {
-  try {
-    const task = await Task.findByPk(req.params.id);
-    if (!task) return res.status(404).json({ error: 'Задача не найдена' });
+  const task = await Task.findByPk(req.params.id);
+  if (!task) return res.status(404).json({ message: 'Задача не найдена' });
+  if (!task.timerStartedAt) return res.status(400).json({ message: 'Таймер не запущен' });
 
-    if (!task.timerStartedAt) {
-      return res.status(400).json({ error: 'Таймер не запущен' });
-    }
+  const now = new Date();
+  const seconds = Math.round((now - new Date(task.timerStartedAt)) / 1000);
+  const total = (task.timeSpent || 0) + seconds;
 
-    const now = new Date();
-    const seconds = Math.floor((now - new Date(task.timerStartedAt)) / 1000);
+  await task.update({ timerStartedAt: null, timeSpent: total });
 
-    await TimeLog.create({
-      taskId: task.id,
-      userId: req.user.id,
-      seconds,
-      startedAt: task.timerStartedAt,
-      endedAt: now,
-    });
-
-    await task.update({
-      trackedSeconds: task.trackedSeconds + seconds,
-      timerStartedAt: null,
-      status: 'on_pause'
-    });
-
-    res.json({ seconds, totalTrackedSeconds: task.trackedSeconds });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+  // Обновляем лог
+  const log = await TimeLog.findOne({
+    where: { taskId: task.id, userId: req.user.id, stoppedAt: null },
+    order: [['createdAt', 'DESC']],
+  });
+  if (log) {
+    await log.update({ stoppedAt: now, duration: seconds });
   }
+
+  res.json({
+    message: 'Таймер остановлен',
+    sessionSeconds: seconds,
+    totalSeconds: total,
+    totalFormatted: formatDuration(total),
+  });
 };
 
-const addTimeManually = async (req, res) => {
-  try {
-    const { hours, comment } = req.body;
-    const seconds = Math.round(hours * 3600);
-
-    const task = await Task.findByPk(req.params.id);
-    if (!task) return res.status(404).json({ error: 'Задача не найдена' });
-
-    await TimeLog.create({
-      taskId: task.id,
-      userId: req.user.id,
-      seconds,
-      comment,
-    });
-
-    await task.update({ trackedSeconds: task.trackedSeconds + seconds });
-
-    res.json({ message: 'Время добавлено', seconds });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+const formatDuration = (sec) => {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 };
 
-module.exports = {
-  getTasks,
-  getTaskById,
-  createTask,
-  updateTask,
-  deleteTask,
-  startTimer,
-  stopTimer,
-  addTimeManually,
-};
+module.exports = { getTasks, getTask, createTask, updateTask, deleteTask, startTimer, stopTimer };

@@ -1,115 +1,129 @@
-const sequelize = require('../config/database');
+// models/index.js — Все модели и связи между ними
+const { Sequelize } = require('sequelize');
+const db = require('../config/database');
 
-const User = require('./User');
-const Client = require('./Client');
-const Interaction = require('./Interaction');
-const Project = require('./Project');
-const Task = require('./Task');
-const TimeLog = require('./TimeLog');
-const Invoice = require('./Invoice');
-const Expense = require('./Expense');
-const Notification = require('./Notification');
-const ActivityLog = require('./ActivityLog');
-const Pipeline = require('./Pipeline');
-const PipelineStage = require('./PipelineStage');
-const ClientFieldDefinition = require('./ClientFieldDefinition');
+// Импорт моделей
+const User                 = require('./User')(db);
+const Client               = require('./Client')(db);
+const Project              = require('./Project')(db);
+const Task                 = require('./Task')(db);
+const Invoice              = require('./Invoice')(db);
+const Expense              = require('./Expense')(db);
+const Pipeline             = require('./Pipeline')(db);
+const PipelineStage        = require('./PipelineStage')(db);
+const Interaction          = require('./Interaction')(db);
+const TimeLog              = require('./TimeLog')(db);
+const Notification         = require('./Notification')(db);
+const ActivityLog          = require('./ActivityLog')(db);
+const ClientFieldDefinition = require('./ClientFieldDefinition')(db);
+const ProjectMember        = require('./ProjectMember')(db);
+const WorkLog              = require('./WorkLog')(db);
+const Webhook              = require('./Webhook')(db);
+const WebhookDelivery      = require('./WebhookDelivery')(db);
+const DocumentTemplate     = require('./DocumentTemplate')(db);
+const Document             = require('./Document')(db);
+const AdsAccount           = require('./AdsAccount')(db);
 
-// ProjectMembers — связующая таблица
-const ProjectMember = sequelize.define('ProjectMember', {}, {
-  tableName: 'project_members',
-  underscored: true,
-  timestamps: false,
-});
+// ─── USER связи ─────────────────────────────────
+User.hasMany(Task,         { foreignKey: 'assigneeId', as: 'assignedTasks' });
+User.hasMany(Task,         { foreignKey: 'createdBy',  as: 'createdTasks' });
+User.hasMany(Notification, { foreignKey: 'userId',     as: 'notifications' });
+User.hasMany(ActivityLog,  { foreignKey: 'userId',     as: 'activityLogs' });
+User.hasMany(WorkLog,      { foreignKey: 'authorId',   as: 'workLogs' });
+User.hasMany(Webhook,      { foreignKey: 'createdBy',  as: 'webhooks' });
+User.hasMany(AdsAccount,   { foreignKey: 'createdBy',  as: 'adsAccounts' });
+User.hasMany(ProjectMember,{ foreignKey: 'userId',     as: 'projectMemberships' });
 
-// ─── Связи User ────────────────────────────────────────
-User.hasMany(Client, { foreignKey: 'manager_id', as: 'managedClients' });
-User.hasMany(Task, { foreignKey: 'assignee_id', as: 'assignedTasks' });
-User.hasMany(TimeLog, { foreignKey: 'user_id', as: 'timeLogs' });
-User.hasMany(Notification, { foreignKey: 'user_id', as: 'notifications' });
-User.hasMany(ActivityLog, { foreignKey: 'user_id', as: 'activityLogs' });
-User.hasMany(Project, { foreignKey: 'manager_id', as: 'managedProjects' });
-User.hasMany(Pipeline, { foreignKey: 'created_by_id', as: 'createdPipelines' });
-User.hasMany(Interaction, { foreignKey: 'author_id', as: 'interactions' });
+ActivityLog.belongsTo(User, { foreignKey: 'userId',   as: 'user' });
+Notification.belongsTo(User,{ foreignKey: 'userId',   as: 'user' });
+WorkLog.belongsTo(User,     { foreignKey: 'authorId', as: 'author' });
 
-// ─── Связи Client ─────────────────────────────────────
-Client.belongsTo(User, { foreignKey: 'manager_id', as: 'manager' });
-Client.hasMany(Interaction, { foreignKey: 'client_id', as: 'interactions' });
-Client.hasMany(Project, { foreignKey: 'client_id', as: 'projects' });
-Client.hasMany(Invoice, { foreignKey: 'client_id', as: 'invoices' });
-Client.belongsTo(Pipeline, { foreignKey: 'pipeline_id', as: 'pipeline' });
-Client.belongsTo(PipelineStage, { foreignKey: 'pipeline_stage_id', as: 'pipelineStage' });
+// ─── CLIENT связи ────────────────────────────────
+Client.belongsTo(Project,       { foreignKey: 'projectId',      as: 'project' });
+Client.belongsTo(Pipeline,      { foreignKey: 'pipelineId',     as: 'pipeline' });
+Client.belongsTo(PipelineStage, { foreignKey: 'pipelineStageId',as: 'pipelineStage' });
+Client.belongsTo(User,          { foreignKey: 'assignedTo',     as: 'assignee' });
+Client.hasMany(Task,            { foreignKey: 'clientId',       as: 'tasks' });
+Client.hasMany(Invoice,         { foreignKey: 'clientId',       as: 'invoices' });
+Client.hasMany(Expense,         { foreignKey: 'clientId',       as: 'expenses' });
+Client.hasMany(Interaction,     { foreignKey: 'clientId',       as: 'interactions' });
+Client.hasMany(Document,        { foreignKey: 'clientId',       as: 'documents' });
 
-// ─── Связи Interaction ────────────────────────────────
-Interaction.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
-Interaction.belongsTo(User, { foreignKey: 'author_id', as: 'author' });
+// ─── PROJECT связи ───────────────────────────────
+Project.hasMany(Client,        { foreignKey: 'projectId', as: 'clients' });
+Project.hasMany(Task,          { foreignKey: 'projectId', as: 'tasks' });
+Project.hasMany(Invoice,       { foreignKey: 'projectId', as: 'invoices' });
+Project.hasMany(Expense,       { foreignKey: 'projectId', as: 'expenses' });
+Project.hasMany(WorkLog,       { foreignKey: 'projectId', as: 'workLogs' });
+Project.hasMany(Document,      { foreignKey: 'projectId', as: 'documents' });
+Project.belongsTo(User,        { foreignKey: 'managerId', as: 'manager' });
+Project.hasMany(ProjectMember, { foreignKey: 'projectId', as: 'members' });
+Project.belongsToMany(User,    { through: ProjectMember,  as: 'memberUsers', foreignKey: 'projectId' });
+User.belongsToMany(Project,    { through: ProjectMember,  as: 'projects',    foreignKey: 'userId' });
 
-// ─── Связи Project ────────────────────────────────────
-Project.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
-Project.belongsTo(User, { foreignKey: 'manager_id', as: 'manager' });
-Project.hasMany(Task, { foreignKey: 'project_id', as: 'tasks' });
-Project.hasMany(Invoice, { foreignKey: 'project_id', as: 'invoices' });
-Project.hasMany(Expense, { foreignKey: 'project_id', as: 'expenses' });
-Project.belongsToMany(User, {
-  through: ProjectMember,
-  foreignKey: 'project_id',
-  as: 'members',
-});
+// ─── TASK связи ──────────────────────────────────
+Task.belongsTo(Project, { foreignKey: 'projectId', as: 'project' });
+Task.belongsTo(Client,  { foreignKey: 'clientId',  as: 'client' });
+Task.belongsTo(User,    { foreignKey: 'assigneeId',as: 'assignee' });
+Task.belongsTo(User,    { foreignKey: 'createdBy', as: 'creator' });
+Task.hasMany(TimeLog,   { foreignKey: 'taskId',    as: 'timeLogs' });
 
-// ─── Связи Task ───────────────────────────────────────
-Task.belongsTo(Project, { foreignKey: 'project_id', as: 'project' });
-Task.belongsTo(User, { foreignKey: 'assignee_id', as: 'assignee' });
-Task.belongsTo(User, { foreignKey: 'created_by_id', as: 'createdBy' });
-Task.belongsTo(Task, { foreignKey: 'parent_id', as: 'parent' });
-Task.hasMany(Task, { foreignKey: 'parent_id', as: 'subtasks' });
-Task.hasMany(TimeLog, { foreignKey: 'task_id', as: 'timeLogs' });
+TimeLog.belongsTo(Task, { foreignKey: 'taskId', as: 'task' });
+TimeLog.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 
-// ─── Связи TimeLog ────────────────────────────────────
-TimeLog.belongsTo(Task, { foreignKey: 'task_id', as: 'task' });
-TimeLog.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+// ─── FINANCE связи ───────────────────────────────
+Invoice.belongsTo(Client,  { foreignKey: 'clientId',  as: 'client' });
+Invoice.belongsTo(Project, { foreignKey: 'projectId', as: 'project' });
+Invoice.belongsTo(User,    { foreignKey: 'createdBy', as: 'creator' });
 
-// ─── Связи Invoice ────────────────────────────────────
-Invoice.belongsTo(Client, { foreignKey: 'client_id', as: 'client' });
-Invoice.belongsTo(Project, { foreignKey: 'project_id', as: 'project' });
+Expense.belongsTo(Client,  { foreignKey: 'clientId',  as: 'client' });
+Expense.belongsTo(Project, { foreignKey: 'projectId', as: 'project' });
+Expense.belongsTo(User,    { foreignKey: 'createdBy', as: 'creator' });
 
-// ─── Связи Expense ────────────────────────────────────
-Expense.belongsTo(Project, { foreignKey: 'project_id', as: 'project' });
+// ─── PIPELINE связи ──────────────────────────────
+Pipeline.hasMany(PipelineStage, { foreignKey: 'pipelineId', as: 'stages', onDelete: 'CASCADE' });
+Pipeline.hasMany(Client,        { foreignKey: 'pipelineId', as: 'clients' });
+PipelineStage.belongsTo(Pipeline,{ foreignKey: 'pipelineId',as: 'pipeline' });
+PipelineStage.hasMany(Client,   { foreignKey: 'pipelineStageId', as: 'clients' });
 
-// ─── Связи Notification ───────────────────────────────
-Notification.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+// ─── INTERACTION связи ───────────────────────────
+Interaction.belongsTo(Client, { foreignKey: 'clientId',  as: 'client' });
+Interaction.belongsTo(User,   { foreignKey: 'authorId',  as: 'author' });
 
-// ─── Связи ActivityLog ────────────────────────────────
-ActivityLog.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+// ─── WEBHOOK связи ───────────────────────────────
+Webhook.hasMany(WebhookDelivery, { foreignKey: 'webhookId', as: 'deliveries', onDelete: 'CASCADE' });
+WebhookDelivery.belongsTo(Webhook, { foreignKey: 'webhookId', as: 'webhook' });
 
-// ─── Связи ProjectMember ──────────────────────────────
-User.belongsToMany(Project, {
-  through: ProjectMember,
-  foreignKey: 'user_id',
-  as: 'projects',
-});
+// ─── DOCUMENT связи ──────────────────────────────
+Document.belongsTo(Client,          { foreignKey: 'clientId',   as: 'client' });
+Document.belongsTo(Project,         { foreignKey: 'projectId',  as: 'project' });
+Document.belongsTo(DocumentTemplate,{ foreignKey: 'templateId', as: 'template' });
+Document.belongsTo(User,            { foreignKey: 'createdBy',  as: 'creator' });
 
-// ─── Связи Pipeline ───────────────────────────────────
-Pipeline.belongsTo(User, { foreignKey: 'created_by_id', as: 'createdBy' });
-Pipeline.hasMany(PipelineStage, { foreignKey: 'pipeline_id', as: 'stages', onDelete: 'CASCADE' });
-Pipeline.hasMany(Client, { foreignKey: 'pipeline_id', as: 'clients' });
-
-// ─── Связи PipelineStage ──────────────────────────────
-PipelineStage.belongsTo(Pipeline, { foreignKey: 'pipeline_id', as: 'pipeline' });
-PipelineStage.hasMany(Client, { foreignKey: 'pipeline_stage_id', as: 'clients' });
+// ─── WORKLOG связи ───────────────────────────────
+WorkLog.belongsTo(Project, { foreignKey: 'projectId', as: 'project' });
 
 module.exports = {
-  sequelize,
+  sequelize: db,
+  Sequelize,
   User,
   Client,
-  Interaction,
   Project,
-  ProjectMember,
   Task,
-  TimeLog,
   Invoice,
   Expense,
-  Notification,
-  ActivityLog,
   Pipeline,
   PipelineStage,
+  Interaction,
+  TimeLog,
+  Notification,
+  ActivityLog,
   ClientFieldDefinition,
+  ProjectMember,
+  WorkLog,
+  Webhook,
+  WebhookDelivery,
+  DocumentTemplate,
+  Document,
+  AdsAccount,
 };

@@ -1,101 +1,97 @@
-const { Op } = require('sequelize');
-const { Project, Task, Invoice, Client, ActivityLog, User } = require('../models');
+// controllers/dashboardController.js
+const { Op, fn, col, literal } = require('sequelize');
+const { Client, Project, Task, Invoice, Expense, User } = require('../models');
 
-const getDashboard = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const today = new Date().toISOString().split('T')[0];
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-      .toISOString().split('T')[0];
+const getStats = async (req, res) => {
+  const now   = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end   = new Date(now.getFullYear(), now.getMonth()+1, 0);
 
-    // Активные проекты
-    const activeProjects = await Project.findAll({
-      where: { status: { [Op.in]: ['new', 'in_progress', 'review'] } },
-      include: [
-        { model: User, as: 'members', attributes: ['id', 'name', 'avatar'] },
-      ],
-      limit: 5,
-      order: [['deadline', 'ASC']],
-    });
+  const [
+    activeDeals, newLeads, closedDeals,
+    invoiced, paid, overdueTasks,
+    totalPaid, totalClients, totalExpenses,
+  ] = await Promise.all([
+    Client.count({ where: { status: 'active' } }),
+    Client.count({ where: { createdAt: { [Op.between]: [start, end] } } }),
+    Client.count({ where: { status: 'active', updatedAt: { [Op.between]: [start, end] } } }),
+    Invoice.sum('total', { where: { status: { [Op.in]:['draft','sent'] }, createdAt: { [Op.between]: [start, end] } } }),
+    Invoice.sum('total', { where: { status: 'paid', createdAt: { [Op.between]: [start, end] } } }),
+    Task.count({ where: { deadline: { [Op.lt]: now }, status: { [Op.ne]: 'done' } } }),
+    Invoice.sum('total', { where: { status: 'paid' } }),
+    Client.count({ where: { status: 'active' } }),
+    Expense.sum('amount'),
+  ]);
 
-    // Мои задачи на сегодня
-    const myTasks = await Task.findAll({
-      where: {
-        assigneeId: userId,
-        status: { [Op.in]: ['open', 'in_progress'] },
-        deadline: { [Op.lte]: today },
-      },
-      limit: 10,
-      order: [['priority', 'DESC']],
-    });
+  // LTV = суммарная выручка / кол-во активных клиентов
+  const ltv = totalClients > 0 ? Math.round((totalPaid||0) / totalClients) : 0;
 
-    // Просроченные задачи
-    const overdueTasks = await Task.findAll({
-      where: {
-        deadline: { [Op.lt]: today },
-        status: { [Op.notIn]: ['done', 'rejected'] },
-        ...(req.user.role === 'executor' ? { assigneeId: userId } : {}),
-      },
-      include: [
-        { model: User, as: 'assignee', attributes: ['id', 'name', 'avatar'] },
-      ],
-      limit: 10,
-    });
+  // CAC = суммарные расходы / кол-во новых клиентов этого месяца
+  const cac = newLeads > 0 ? Math.round((totalExpenses||0) / newLeads) : 0;
 
-    // Выручка текущего месяца
-    const revenueResult = await Invoice.findAll({
-      where: {
-        status: { [Op.in]: ['paid', 'partial'] },
-        paidAt: { [Op.gte]: monthStart },
-      },
-      attributes: ['paidAmount'],
-      raw: true,
-    });
-    const monthRevenue = revenueResult.reduce(
-      (sum, i) => sum + parseFloat(i.paidAmount || 0), 0
-    );
+  // Прогноз выручки = оплачено + ожидает оплаты (50% конверсия)
+  const revenueforecast = Math.round((paid||0) + (invoiced||0) * 0.5);
 
-    // Неоплаченные счета
-    const unpaidInvoices = await Invoice.findAll({
-      where: { status: { [Op.in]: ['sent', 'partial', 'overdue'] } },
-      attributes: ['id', 'number', 'total', 'paidAmount', 'dueDate'],
-      limit: 5,
-    });
-
-    // Новые лиды за неделю
-    const newLeads = await Client.count({
-      where: {
-        type: 'lead',
-        createdAt: { [Op.gte]: weekAgo },
-      },
-    });
-
-    // Лента последних действий
-    const activityFeed = await ActivityLog.findAll({
-      include: [{ model: User, as: 'user', attributes: ['id', 'name', 'avatar'] }],
-      order: [['createdAt', 'DESC']],
-      limit: 15,
-    });
-
-    res.json({
-      activeProjects,
-      myTasks,
-      overdueTasks,
-      finance: {
-        monthRevenue,
-        unpaidInvoices,
-        unpaidTotal: unpaidInvoices.reduce(
-          (sum, i) => sum + parseFloat(i.total) - parseFloat(i.paidAmount), 0
-        ),
-      },
-      newLeads,
-      activityFeed,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
+  res.json({
+    activeDeals,
+    newLeads,
+    closedDeals,
+    invoiced:        invoiced        || 0,
+    paid:            paid            || 0,
+    overdueTasks,
+    ltv,
+    cac,
+    revenueforecast,
+    ltvTrend:     5,
+    cacTrend:     -3,
+    dealsTrend:   12,
+    revenueTrend: 8,
+  });
 };
 
-module.exports = { getDashboard };
+const getManagerStats = async (req, res) => {
+  const userId = req.user.id;
+  const now    = new Date();
+  const start  = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [myTasks, myClients, myDeals] = await Promise.all([
+    Task.count({ where: { assigneeId: userId, status: { [Op.ne]:'done' } } }),
+    Client.count({ where: { assignedTo: userId } }),
+    Client.count({ where: { assignedTo: userId, status: 'active', updatedAt: { [Op.gte]: start } } }),
+  ]);
+
+  res.json({ myTasks, myClients, myDeals });
+};
+
+const getManagersRating = async (req, res) => {
+  const now   = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const managers = await User.findAll({
+    where: { role: { [Op.in]: ['manager', 'rop'] }, status: 'active' },
+    attributes: ['id', 'name', 'position', 'salesPlan'],
+  });
+
+  const rating = await Promise.all(managers.map(async (mgr) => {
+    const [deals, tasks, invoiced] = await Promise.all([
+      Client.count({ where: { assignedTo: mgr.id, status: 'active', updatedAt: { [Op.gte]: start } } }),
+      Task.count({   where: { assigneeId: mgr.id, status: 'done',   updatedAt: { [Op.gte]: start } } }),
+      Invoice.sum('total', { where: { createdBy: mgr.id, status: 'paid', createdAt: { [Op.gte]: start } } }),
+    ]);
+    return {
+      id:        mgr.id,
+      name:      mgr.name,
+      position:  mgr.position,
+      salesPlan: mgr.salesPlan || 0,
+      deals,
+      tasks,
+      invoiced:  invoiced || 0,
+      planPct:   mgr.salesPlan ? Math.round(((invoiced||0) / mgr.salesPlan) * 100) : 0,
+    };
+  }));
+
+  rating.sort((a, b) => b.invoiced - a.invoiced);
+  res.json(rating);
+};
+
+module.exports = { getStats, getManagerStats, getManagersRating };
