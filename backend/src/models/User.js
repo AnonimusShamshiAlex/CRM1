@@ -63,13 +63,11 @@ const User = sequelize.define('User', {
     type: DataTypes.TEXT,
     field: 'google_refresh_token',
   },
-  // Воронки продаж, доступные менеджеру
   assignedPipelineIds: {
     type: DataTypes.ARRAY(DataTypes.UUID),
     defaultValue: [],
     field: 'assigned_pipeline_ids',
   },
-  // Планы продаж
   salesPlanMonth: {
     type: DataTypes.DECIMAL(12, 2),
     defaultValue: 0,
@@ -85,7 +83,6 @@ const User = sequelize.define('User', {
     defaultValue: 0,
     field: 'sales_plan_day',
   },
-  // Настройки IP-телефонии
   sipLogin: {
     type: DataTypes.STRING(100),
     field: 'sip_login',
@@ -95,13 +92,14 @@ const User = sequelize.define('User', {
     field: 'sip_password',
   },
   isSuperAdmin: {
-  type: DataTypes.BOOLEAN,
-  defaultValue: false,
-  field: 'is_super_admin',
-},
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    field: 'is_super_admin',
+  },
 }, {
   tableName: 'users',
   underscored: true,
+  timestamps: true,
 });
 
 module.exports = User;
