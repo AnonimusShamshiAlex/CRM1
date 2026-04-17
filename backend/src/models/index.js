@@ -2,27 +2,29 @@
 const { Sequelize } = require('sequelize');
 const sequelize = require('../config/database');
 
-// Импорт моделей
-const User                 = require('./User')(sequelize);
-const Client               = require('./Client')(sequelize);
-const Project              = require('./Project')(sequelize);
-const Task                 = require('./Task')(sequelize);
-const Invoice              = require('./Invoice')(sequelize);
-const Expense              = require('./Expense')(sequelize);
-const Pipeline             = require('./Pipeline')(sequelize);
-const PipelineStage        = require('./PipelineStage')(sequelize);
-const Interaction          = require('./Interaction')(sequelize);
-const TimeLog              = require('./TimeLog')(sequelize);
-const Notification         = require('./Notification')(sequelize);
-const ActivityLog          = require('./ActivityLog')(sequelize);
-const ClientFieldDefinition = require('./ClientFieldDefinition')(sequelize);
-const ProjectMember        = require('./ProjectMember')(sequelize);
-const WorkLog              = require('./WorkLog')(sequelize);
-const Webhook              = require('./Webhook')(sequelize);
-const WebhookDelivery      = require('./WebhookDelivery')(sequelize);
-const DocumentTemplate     = require('./DocumentTemplate')(sequelize);
-const Document             = require('./Document')(sequelize);
-const AdsAccount           = require('./AdsAccount')(sequelize);
+// Импорт моделей (БЕЗ вызова функции!)
+const User = require('./User');
+const Client = require('./Client');
+const Project = require('./Project');
+const Task = require('./Task');
+const Invoice = require('./Invoice');
+const Expense = require('./Expense');
+const Pipeline = require('./Pipeline');
+const PipelineStage = require('./PipelineStage');
+const Interaction = require('./Interaction');
+const TimeLog = require('./TimeLog');
+const Notification = require('./Notification');
+const ActivityLog = require('./ActivityLog');
+const ClientFieldDefinition = require('./ClientFieldDefinition');
+const ProjectMember = require('./ProjectMember');
+const WorkLog = require('./WorkLog');
+const Webhook = require('./Webhook');
+const WebhookDelivery = require('./WebhookDelivery');
+const DocumentTemplate = require('./DocumentTemplate');
+const Document = require('./Document');
+const AdsAccount = require('./AdsAccount');
+
+// ... остальной код (связи) без изменений
 
 // ─── USER связи ─────────────────────────────────
 User.hasMany(Task,         { foreignKey: 'assigneeId', as: 'assignedTasks' });
