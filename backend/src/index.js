@@ -1,28 +1,28 @@
 // models/index.js — Все модели и связи между ними
 const { Sequelize } = require('sequelize');
-const db = require('../config/database');
+const sequelize = require('../config/database');
 
 // Импорт моделей
-const User                 = require('./User')(db);
-const Client               = require('./Client')(db);
-const Project              = require('./Project')(db);
-const Task                 = require('./Task')(db);
-const Invoice              = require('./Invoice')(db);
-const Expense              = require('./Expense')(db);
-const Pipeline             = require('./Pipeline')(db);
-const PipelineStage        = require('./PipelineStage')(db);
-const Interaction          = require('./Interaction')(db);
-const TimeLog              = require('./TimeLog')(db);
-const Notification         = require('./Notification')(db);
-const ActivityLog          = require('./ActivityLog')(db);
-const ClientFieldDefinition = require('./ClientFieldDefinition')(db);
-const ProjectMember        = require('./ProjectMember')(db);
-const WorkLog              = require('./WorkLog')(db);
-const Webhook              = require('./Webhook')(db);
-const WebhookDelivery      = require('./WebhookDelivery')(db);
-const DocumentTemplate     = require('./DocumentTemplate')(db);
-const Document             = require('./Document')(db);
-const AdsAccount           = require('./AdsAccount')(db);
+const User                 = require('./User')(sequelize);
+const Client               = require('./Client')(sequelize);
+const Project              = require('./Project')(sequelize);
+const Task                 = require('./Task')(sequelize);
+const Invoice              = require('./Invoice')(sequelize);
+const Expense              = require('./Expense')(sequelize);
+const Pipeline             = require('./Pipeline')(sequelize);
+const PipelineStage        = require('./PipelineStage')(sequelize);
+const Interaction          = require('./Interaction')(sequelize);
+const TimeLog              = require('./TimeLog')(sequelize);
+const Notification         = require('./Notification')(sequelize);
+const ActivityLog          = require('./ActivityLog')(sequelize);
+const ClientFieldDefinition = require('./ClientFieldDefinition')(sequelize);
+const ProjectMember        = require('./ProjectMember')(sequelize);
+const WorkLog              = require('./WorkLog')(sequelize);
+const Webhook              = require('./Webhook')(sequelize);
+const WebhookDelivery      = require('./WebhookDelivery')(sequelize);
+const DocumentTemplate     = require('./DocumentTemplate')(sequelize);
+const Document             = require('./Document')(sequelize);
+const AdsAccount           = require('./AdsAccount')(sequelize);
 
 // ─── USER связи ─────────────────────────────────
 User.hasMany(Task,         { foreignKey: 'assigneeId', as: 'assignedTasks' });
@@ -104,7 +104,7 @@ Document.belongsTo(User,            { foreignKey: 'createdBy',  as: 'creator' })
 WorkLog.belongsTo(Project, { foreignKey: 'projectId', as: 'project' });
 
 module.exports = {
-  sequelize: db,
+  sequelize,
   Sequelize,
   User,
   Client,
