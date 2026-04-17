@@ -1,129 +1,165 @@
-// models/index.js — Все модели и связи между ними
-const { Sequelize } = require('sequelize');
-const db = require('../config/database');
+const express = require('express');
+const router = express.Router();
 
-// Импорт моделей
-const User                 = require('./User')(db);
-const Client               = require('./Client')(db);
-const Project              = require('./Project')(db);
-const Task                 = require('./Task')(db);
-const Invoice              = require('./Invoice')(db);
-const Expense              = require('./Expense')(db);
-const Pipeline             = require('./Pipeline')(db);
-const PipelineStage        = require('./PipelineStage')(db);
-const Interaction          = require('./Interaction')(db);
-const TimeLog              = require('./TimeLog')(db);
-const Notification         = require('./Notification')(db);
-const ActivityLog          = require('./ActivityLog')(db);
-const ClientFieldDefinition = require('./ClientFieldDefinition')(db);
-const ProjectMember        = require('./ProjectMember')(db);
-const WorkLog              = require('./WorkLog')(db);
-const Webhook              = require('./Webhook')(db);
-const WebhookDelivery      = require('./WebhookDelivery')(db);
-const DocumentTemplate     = require('./DocumentTemplate')(db);
-const Document             = require('./Document')(db);
-const AdsAccount           = require('./AdsAccount')(db);
+// Импорт моделей из models/index.js
+const { User, Client, Project, Task, Invoice, Expense, Pipeline, PipelineStage, Interaction, TimeLog, Notification, ActivityLog } = require('../models');
 
-// ─── USER связи ─────────────────────────────────
-User.hasMany(Task,         { foreignKey: 'assigneeId', as: 'assignedTasks' });
-User.hasMany(Task,         { foreignKey: 'createdBy',  as: 'createdTasks' });
-User.hasMany(Notification, { foreignKey: 'userId',     as: 'notifications' });
-User.hasMany(ActivityLog,  { foreignKey: 'userId',     as: 'activityLogs' });
-User.hasMany(WorkLog,      { foreignKey: 'authorId',   as: 'workLogs' });
-User.hasMany(Webhook,      { foreignKey: 'createdBy',  as: 'webhooks' });
-User.hasMany(AdsAccount,   { foreignKey: 'createdBy',  as: 'adsAccounts' });
-User.hasMany(ProjectMember,{ foreignKey: 'userId',     as: 'projectMemberships' });
+// Импорт контроллеров
+const authController = require('../controllers/authController');
+const clientController = require('../controllers/clientController');
+const projectController = require('../controllers/projectController');
+const taskController = require('../controllers/taskController');
+const financeController = require('../controllers/financeController');
+const dashboardController = require('../controllers/dashboardController');
+const pipelineController = require('../controllers/pipelineController');
+const clientFieldController = require('../controllers/clientFieldController');
+const telephonyController = require('../controllers/telephonyController');
+const fileController = require('../controllers/fileController');
+const exportController = require('../controllers/exportController');
+const searchController = require('../controllers/searchController');
+const webhookController = require('../controllers/webhookController');
+const documentController = require('../controllers/documentController');
+const metricsController = require('../controllers/metricsController');
+const twoFactorController = require('../controllers/twoFactorController');
 
-ActivityLog.belongsTo(User, { foreignKey: 'userId',   as: 'user' });
-Notification.belongsTo(User,{ foreignKey: 'userId',   as: 'user' });
-WorkLog.belongsTo(User,     { foreignKey: 'authorId', as: 'author' });
+// Мидлвары
+const { auth, requireRole } = require('../middleware/auth');
+const upload = require('../middleware/upload');
 
-// ─── CLIENT связи ────────────────────────────────
-Client.belongsTo(Project,       { foreignKey: 'projectId',      as: 'project' });
-Client.belongsTo(Pipeline,      { foreignKey: 'pipelineId',     as: 'pipeline' });
-Client.belongsTo(PipelineStage, { foreignKey: 'pipelineStageId',as: 'pipelineStage' });
-Client.belongsTo(User,          { foreignKey: 'assignedTo',     as: 'assignee' });
-Client.hasMany(Task,            { foreignKey: 'clientId',       as: 'tasks' });
-Client.hasMany(Invoice,         { foreignKey: 'clientId',       as: 'invoices' });
-Client.hasMany(Expense,         { foreignKey: 'clientId',       as: 'expenses' });
-Client.hasMany(Interaction,     { foreignKey: 'clientId',       as: 'interactions' });
-Client.hasMany(Document,        { foreignKey: 'clientId',       as: 'documents' });
+// ==================== AUTH ====================
+router.post('/auth/register', authController.register);
+router.post('/auth/login', authController.login);
+router.get('/auth/me', auth, authController.me);
+router.post('/auth/change-password', auth, authController.changePassword);
 
-// ─── PROJECT связи ───────────────────────────────
-Project.hasMany(Client,        { foreignKey: 'projectId', as: 'clients' });
-Project.hasMany(Task,          { foreignKey: 'projectId', as: 'tasks' });
-Project.hasMany(Invoice,       { foreignKey: 'projectId', as: 'invoices' });
-Project.hasMany(Expense,       { foreignKey: 'projectId', as: 'expenses' });
-Project.hasMany(WorkLog,       { foreignKey: 'projectId', as: 'workLogs' });
-Project.hasMany(Document,      { foreignKey: 'projectId', as: 'documents' });
-Project.belongsTo(User,        { foreignKey: 'managerId', as: 'manager' });
-Project.hasMany(ProjectMember, { foreignKey: 'projectId', as: 'members' });
-Project.belongsToMany(User,    { through: ProjectMember,  as: 'memberUsers', foreignKey: 'projectId' });
-User.belongsToMany(Project,    { through: ProjectMember,  as: 'projects',    foreignKey: 'userId' });
+// ==================== USERS ====================
+router.get('/users', auth, requireRole('admin', 'director'), async (req, res) => {
+  const users = await User.findAll({ attributes: { exclude: ['password'] } });
+  res.json(users);
+});
+router.get('/users/pending', auth, requireRole('admin'), async (req, res) => {
+  const users = await User.findAll({ where: { isActive: false }, attributes: { exclude: ['password'] } });
+  res.json(users);
+});
+router.patch('/users/:id/approve', auth, requireRole('admin'), async (req, res) => {
+  const { role } = req.body;
+  await User.update({ isActive: true, role }, { where: { id: req.params.id } });
+  res.json({ message: 'Пользователь одобрен' });
+});
+router.patch('/users/:id/role', auth, requireRole('admin', 'director'), async (req, res) => {
+  await User.update({ role: req.body.role }, { where: { id: req.params.id } });
+  res.json({ message: 'Роль обновлена' });
+});
+router.put('/users/profile', auth, async (req, res) => {
+  await User.update(req.body, { where: { id: req.user.id } });
+  const updated = await User.findByPk(req.user.id, { attributes: { exclude: ['password'] } });
+  res.json(updated);
+});
+router.put('/users/password', auth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const user = await User.findByPk(req.user.id);
+  const bcrypt = require('bcryptjs');
+  const isMatch = await bcrypt.compare(currentPassword, user.password);
+  if (!isMatch) return res.status(400).json({ error: 'Неверный текущий пароль' });
+  user.password = await bcrypt.hash(newPassword, 12);
+  await user.save();
+  res.json({ message: 'Пароль изменён' });
+});
 
-// ─── TASK связи ──────────────────────────────────
-Task.belongsTo(Project, { foreignKey: 'projectId', as: 'project' });
-Task.belongsTo(Client,  { foreignKey: 'clientId',  as: 'client' });
-Task.belongsTo(User,    { foreignKey: 'assigneeId',as: 'assignee' });
-Task.belongsTo(User,    { foreignKey: 'createdBy', as: 'creator' });
-Task.hasMany(TimeLog,   { foreignKey: 'taskId',    as: 'timeLogs' });
+// ==================== CLIENTS ====================
+router.get('/clients', auth, clientController.getAll);
+router.get('/clients/:id', auth, clientController.getOne);
+router.post('/clients', auth, requireRole('admin', 'manager'), clientController.create);
+router.put('/clients/:id', auth, requireRole('admin', 'manager'), clientController.update);
+router.delete('/clients/:id', auth, requireRole('admin', 'director'), clientController.delete);
+router.patch('/clients/:id/pipeline-stage', auth, clientController.updatePipelineStage);
+router.post('/clients/:id/interactions', auth, clientController.addInteraction);
+router.post('/clients/distribute', auth, requireRole('admin', 'head_of_sales'), clientController.distribute);
 
-TimeLog.belongsTo(Task, { foreignKey: 'taskId', as: 'task' });
-TimeLog.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+// ==================== PROJECTS ====================
+router.get('/projects', auth, projectController.getAll);
+router.get('/projects/:id', auth, projectController.getOne);
+router.post('/projects', auth, requireRole('admin', 'manager'), projectController.create);
+router.put('/projects/:id', auth, requireRole('admin', 'manager'), projectController.update);
+router.delete('/projects/:id', auth, requireRole('admin'), projectController.delete);
 
-// ─── FINANCE связи ───────────────────────────────
-Invoice.belongsTo(Client,  { foreignKey: 'clientId',  as: 'client' });
-Invoice.belongsTo(Project, { foreignKey: 'projectId', as: 'project' });
-Invoice.belongsTo(User,    { foreignKey: 'createdBy', as: 'creator' });
+// ==================== TASKS ====================
+router.get('/tasks', auth, taskController.getAll);
+router.get('/tasks/:id', auth, taskController.getOne);
+router.post('/tasks', auth, taskController.create);
+router.put('/tasks/:id', auth, taskController.update);
+router.delete('/tasks/:id', auth, taskController.delete);
+router.post('/tasks/:id/timer/start', auth, taskController.startTimer);
+router.post('/tasks/:id/timer/stop', auth, taskController.stopTimer);
+router.post('/tasks/:id/time', auth, taskController.addManualTime);
 
-Expense.belongsTo(Client,  { foreignKey: 'clientId',  as: 'client' });
-Expense.belongsTo(Project, { foreignKey: 'projectId', as: 'project' });
-Expense.belongsTo(User,    { foreignKey: 'createdBy', as: 'creator' });
+// ==================== FINANCE ====================
+router.get('/invoices', auth, financeController.getInvoices);
+router.post('/invoices', auth, requireRole('admin', 'manager'), financeController.createInvoice);
+router.put('/invoices/:id', auth, requireRole('admin', 'manager'), financeController.updateInvoice);
+router.post('/invoices/:id/payment', auth, financeController.addPayment);
+router.get('/expenses', auth, financeController.getExpenses);
+router.post('/expenses', auth, requireRole('admin', 'manager'), financeController.createExpense);
+router.get('/reports/finance', auth, requireRole('admin', 'manager'), financeController.getFinanceReport);
 
-// ─── PIPELINE связи ──────────────────────────────
-Pipeline.hasMany(PipelineStage, { foreignKey: 'pipelineId', as: 'stages', onDelete: 'CASCADE' });
-Pipeline.hasMany(Client,        { foreignKey: 'pipelineId', as: 'clients' });
-PipelineStage.belongsTo(Pipeline,{ foreignKey: 'pipelineId',as: 'pipeline' });
-PipelineStage.hasMany(Client,   { foreignKey: 'pipelineStageId', as: 'clients' });
+// ==================== PIPELINES ====================
+router.get('/pipelines', auth, pipelineController.getAll);
+router.get('/pipelines/:id', auth, pipelineController.getOne);
+router.post('/pipelines', auth, requireRole('admin', 'director'), pipelineController.create);
+router.put('/pipelines/:id', auth, requireRole('admin', 'director'), pipelineController.update);
+router.delete('/pipelines/:id', auth, requireRole('admin', 'director'), pipelineController.delete);
+router.get('/pipelines/:id/stages', auth, pipelineController.getStages);
+router.post('/pipelines/:id/stages', auth, requireRole('admin', 'director'), pipelineController.addStage);
+router.put('/pipelines/:id/stages/reorder', auth, requireRole('admin', 'director'), pipelineController.reorderStages);
+router.put('/pipelines/:pid/stages/:sid', auth, requireRole('admin', 'director'), pipelineController.updateStage);
+router.delete('/pipelines/:pid/stages/:sid', auth, requireRole('admin', 'director'), pipelineController.deleteStage);
 
-// ─── INTERACTION связи ───────────────────────────
-Interaction.belongsTo(Client, { foreignKey: 'clientId',  as: 'client' });
-Interaction.belongsTo(User,   { foreignKey: 'authorId',  as: 'author' });
+// ==================== DASHBOARD ====================
+router.get('/dashboard/stats', auth, dashboardController.getStats);
 
-// ─── WEBHOOK связи ───────────────────────────────
-Webhook.hasMany(WebhookDelivery, { foreignKey: 'webhookId', as: 'deliveries', onDelete: 'CASCADE' });
-WebhookDelivery.belongsTo(Webhook, { foreignKey: 'webhookId', as: 'webhook' });
+// ==================== CLIENT FIELDS ====================
+router.get('/client-fields', auth, clientFieldController.getAll);
+router.post('/client-fields', auth, requireRole('admin', 'director'), clientFieldController.create);
+router.put('/client-fields/:id', auth, requireRole('admin', 'director'), clientFieldController.update);
+router.delete('/client-fields/:id', auth, requireRole('admin', 'director'), clientFieldController.delete);
 
-// ─── DOCUMENT связи ──────────────────────────────
-Document.belongsTo(Client,          { foreignKey: 'clientId',   as: 'client' });
-Document.belongsTo(Project,         { foreignKey: 'projectId',  as: 'project' });
-Document.belongsTo(DocumentTemplate,{ foreignKey: 'templateId', as: 'template' });
-Document.belongsTo(User,            { foreignKey: 'createdBy',  as: 'creator' });
+// ==================== TELEPHONY ====================
+router.post('/calls/initiate', auth, telephonyController.initiateCall);
+router.post('/calls/webhook', telephonyController.webhook);
 
-// ─── WORKLOG связи ───────────────────────────────
-WorkLog.belongsTo(Project, { foreignKey: 'projectId', as: 'project' });
+// ==================== FILES ====================
+router.post('/files/:entity/:entityId', auth, upload.array('files', 10), fileController.upload);
+router.delete('/files/:entity/:filename', auth, fileController.delete);
 
-module.exports = {
-  sequelize: db,
-  Sequelize,
-  User,
-  Client,
-  Project,
-  Task,
-  Invoice,
-  Expense,
-  Pipeline,
-  PipelineStage,
-  Interaction,
-  TimeLog,
-  Notification,
-  ActivityLog,
-  ClientFieldDefinition,
-  ProjectMember,
-  WorkLog,
-  Webhook,
-  WebhookDelivery,
-  DocumentTemplate,
-  Document,
-  AdsAccount,
-};
+// ==================== EXPORT ====================
+router.get('/export/clients', auth, requireRole('admin', 'manager'), exportController.exportClients);
+router.get('/export/invoices/:id/pdf', auth, exportController.exportInvoicePDF);
+router.get('/export/reports/pdf', auth, exportController.exportReportPDF);
+router.get('/export/reports/excel', auth, exportController.exportReportExcel);
+
+// ==================== SEARCH ====================
+router.get('/search', auth, searchController.globalSearch);
+
+// ==================== WEBHOOKS ====================
+router.get('/webhooks', auth, webhookController.getAll);
+router.post('/webhooks', auth, webhookController.create);
+router.put('/webhooks/:id', auth, webhookController.update);
+router.delete('/webhooks/:id', auth, webhookController.delete);
+
+// ==================== DOCUMENTS ====================
+router.get('/documents/templates', auth, documentController.getTemplates);
+router.post('/documents/generate', auth, documentController.generateDocument);
+router.get('/documents/:id', auth, documentController.getDocument);
+router.delete('/documents/:id', auth, documentController.deleteDocument);
+
+// ==================== METRICS ====================
+router.get('/metrics/ltv', auth, metricsController.getLTV);
+router.get('/metrics/cac', auth, metricsController.getCAC);
+router.get('/metrics/romi', auth, metricsController.getROMI);
+
+// ==================== 2FA ====================
+router.post('/2fa/setup', auth, twoFactorController.setup);
+router.post('/2fa/verify', auth, twoFactorController.verify);
+router.post('/2fa/disable', auth, twoFactorController.disable);
+
+module.exports = router;
